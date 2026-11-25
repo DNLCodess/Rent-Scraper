@@ -25,7 +25,7 @@ describe("parsePrice", () => {
     ["Price: 4,500,000 annual rent. Agency 10%", 4_500_000, "year"],
     ["Shortlet in Ikoyi ₦85,000 per night", 85_000, "night"],
     ["Room and parlour Ibadan Bodija 250k", 250_000, null],
-    ["NGN 2.2M total package", 2_200_000, null],
+    ["NGN 2.2M total package", null, null], // package, not rent (R4)
     ["₦1,200,000/annum 2bed Gbagada", 1_200_000, "year"],
     ["Rent 1.8m, caution 200k, agency 180k", 1_800_000, null],
     ["Caution fee 300k. Rent N2.5m per annum", 2_500_000, "year"],
@@ -134,6 +134,13 @@ describe("parsePower", () => {
     ["solar and inverter", "mentioned"],
     ["Beautiful flat", "unknown"],
     ["Band Aid", "unknown"],
+    ["24/7 security", "unknown"],
+    ["24hrs water supply", "unknown"],
+    ["within 24 hours", "unknown"],
+    ["plenty of natural light", "unknown"],
+    ["light blue tiles", "unknown"],
+    ["power of attorney", "unknown"],
+    ["gen set and meter", "unknown"],
   ];
   it.each(cases)("%s -> %s", (text, level) => {
     const r = parsePower(text);
@@ -152,6 +159,7 @@ describe("parseTotalPackage", () => {
     ["package: 2.2m", 2_200_000],
     ["total: ₦2m", 2_000_000],
     ["Rent 1.5m, agency 10%, legal 10%", null],
+    ["NGN 2.2M total package", 2_200_000],
   ];
   it.each(cases)("%s -> %s", (text, want) => {
     expect(parseTotalPackage(text)).toBe(want);
@@ -202,6 +210,13 @@ describe("total package in parseListing", () => {
   it("captures the package without changing rent", () => {
     const r = parseListing("2 bedroom Yaba. Rent 1.5m per annum. Total package ₦1.95m");
     expect(r.price_ngn).toBe(1_500_000);
+    expect(r.total_package_ngn).toBe(1_950_000);
+  });
+  it("package-only caption has no rent", () => {
+    const r = parseListing("Yaba flat. Total package ₦1.95m");
+    expect(r.price_ngn).toBeNull();
+    expect(r.price_raw).toBeNull();
+    expect(r.price_period).toBeNull();
     expect(r.total_package_ngn).toBe(1_950_000);
   });
   it("is null when not stated", () => {

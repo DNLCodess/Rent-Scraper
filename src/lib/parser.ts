@@ -56,6 +56,8 @@ const PERIOD_PATTERNS: [PricePeriod, RegExp][] = [
 
 // Words right before a figure that make it more / less likely to be the rent.
 const RENT_HINT = /\b(rent|price|amount|cost|annual|yearly|per annum)\b/i;
+const PACKAGE_LABEL_BEFORE = /(?:total\s*package|package|total)\W*(?:(?:is|of)\s+)?$/i;
+const PACKAGE_LABEL_AFTER = /^\s*(?:total\s*)?package(?![a-z])/i;
 const PACKAGE_HINT = /\b(total|package)\b/i;
 const FEE_HINT = /\b(caution|agency|agent|agreement|legal|service\s*charge|inspection|deposit|commission|fees?)\b/i;
 
@@ -104,6 +106,8 @@ function findPrice(text: string): PriceHit | null {
     let score = 0;
     if (RENT_HINT.test(before)) score += 2;
     if (FEE_HINT.test(before)) score -= 3;
+    // A figure labelled as the package ("total package 2m", "2m total package") is not rent.
+    if (PACKAGE_LABEL_BEFORE.test(before) || PACKAGE_LABEL_AFTER.test(text.slice(end))) continue;
     if (PACKAGE_HINT.test(before)) score -= 3;
 
     if (!best || score > best.score) {
@@ -143,6 +147,15 @@ function findPackage(text: string): (Span & { ngn: number }) | null {
     const ngn = figureNgn(m.groups);
     if (ngn !== null) return { ngn, start: k.index ?? 0, end: keyEnd + m[0].length };
   }
+  // Trailing label: "NGN 2.2M total package".
+  for (const m of text.matchAll(PRICE_RE)) {
+    const ngn = figureNgn(m.groups);
+    if (ngn === null) continue;
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    const label = PACKAGE_LABEL_AFTER.exec(text.slice(end));
+    if (label) return { ngn, start, end: end + label[0].length };
+  }
   return null;
 }
 
@@ -162,7 +175,7 @@ export function yearlyRent(ngn: number | null, period: PricePeriod | null): numb
 // Power
 // ---------------------------------------------------------------------------
 
-const POWER_WORD = String.raw`(?:\s+(?:light|power|electricity|supply))?`;
+const POWER_WORD = String.raw`\s+(?:light|power|electricity)`;
 const STRONG_POWER: RegExp[] = [
   new RegExp(String.raw`(?<![a-z0-9])24\s*/\s*7${POWER_WORD}(?![a-z0-9])`, "i"),
   new RegExp(String.raw`(?<![a-z0-9])24\s*-?\s*(?:hrs?|hours?)${POWER_WORD}(?![a-z0-9])`, "i"),
@@ -171,14 +184,7 @@ const STRONG_POWER: RegExp[] = [
   /\bdedicated\s+transformer\b/i,
   /\bband\s*-?\s*a\b/i,
 ];
-const MENTIONED_POWER: RegExp[] = [
-  /\bprepaid\s+meter\b/i,
-  /\bsolar\b/i,
-  /\binverter\b/i,
-  /\bgenerator\b/i,
-  /\btransformer\b/i,
-  /\bmeter\b/i,
-  /\b(?:light|power|electricity)\b/i,
+const MENTIONED_POWER: RegExp[] = [/\bprepaid\s+meter\b/i, /\bsolar\b/i, /\binverter\b/i,
 ];
 
 function findPower(text: string): (Span & { level: PowerLevel }) | null {
