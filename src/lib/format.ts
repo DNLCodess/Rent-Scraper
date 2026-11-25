@@ -63,3 +63,47 @@ export function statusVariant(s: RunStatus): "default" | "secondary" | "destruct
   if (s === "failed") return "destructive";
   return "outline";
 }
+
+const DAY_MS = 86_400_000;
+
+/** "today", "yesterday", "3 days ago", "2 weeks ago", "4 months ago". */
+export function formatAge(iso: string, now: Date = new Date()): string {
+  const days = Math.max(0, Math.floor((now.getTime() - new Date(iso).getTime()) / DAY_MS));
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.floor(days / 7)} weeks ago`;
+  return `${Math.floor(days / 30)} months ago`;
+}
+
+/** "Posted 2 days ago", or "Found …" when TikTok gave no post date. */
+export function formatPosted(l: { posted_at: string | null; first_seen_at: string }, now: Date = new Date()): string {
+  return l.posted_at ? `Posted ${formatAge(l.posted_at, now)}` : `Found ${formatAge(l.first_seen_at, now)}`;
+}
+
+/** "Studio", "2-bed", or null when unknown. */
+export function formatBedsShort(n: number | null): string | null {
+  if (n === null) return null;
+  return n === 0 ? "Studio" : `${n}-bed`;
+}
+
+/** Card title: "2-bed in Yaba", "Home in Ajah", "2-bed, area not given". */
+export function formatHomeTitle(l: Pick<Listing, "bedrooms" | "area">): string {
+  const beds = formatBedsShort(l.bedrooms);
+  if (l.area) return `${beds ?? "Home"} in ${l.area}`;
+  return beds ? `${beds}, area not given` : "Home, details not given";
+}
+
+/** Price period as shown under the reel price. No period means yearly (spec §7). */
+export function formatPeriod(p: Listing["price_period"], short = false): string {
+  const period = p ?? "year";
+  if (!short) return `/ ${period}`;
+  return PERIOD_SUFFIX[period];
+}
+
+/** Text inside the brass power tag. */
+export function formatPower(level: "strong" | "mentioned" | "unknown"): string {
+  if (level === "strong") return "Constant power";
+  if (level === "mentioned") return "Power mentioned";
+  return "";
+}

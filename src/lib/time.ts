@@ -48,3 +48,12 @@ export function startOfLagosDay(d: Date): Date {
 export function formatLagos(d: Date, style: Style): string {
   return new Intl.DateTimeFormat("en-GB", { timeZone: LAGOS_TZ, ...FORMATS[style] }).format(d);
 }
+
+/** Hour of the daily automatic run in Lagos (cron `0 6 * * *` UTC). */
+export const DAILY_RUN_HOUR = 7;
+
+/** "Next search 7:00 today" before 07:00 Lagos, otherwise "… tomorrow". */
+export function nextSearchLabel(now: Date = new Date()): string {
+  const hour = lagosParts(now).hour;
+  return `Next search ${DAILY_RUN_HOUR}:00 ${hour < DAILY_RUN_HOUR ? "today" : "tomorrow"}`;
+}

@@ -1,16 +1,6 @@
-import { SearchForm } from "@/components/search-form";
+import { Inbox } from "@/components/inbox/inbox";
 
-export default function SearchPage() {
-  return (
-    <div className="max-w-2xl space-y-8">
-      <div className="space-y-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Find rentals on TikTok</h1>
-        <p className="text-muted-foreground">
-          Collect house-for-rent videos by hashtag or keyword. Price, area, bedrooms and contact are pulled from
-          captions and creator bios.
-        </p>
-      </div>
-      <SearchForm />
-    </div>
-  );
+/** Home: the Inbox of new listings. Data loads on the client, with skeletons while it does. */
+export default function InboxPage() {
+  return <Inbox />;
 }

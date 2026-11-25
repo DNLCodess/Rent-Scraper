@@ -10,7 +10,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <>
       {children}
-      <Toaster position="bottom-right" />
+      {/* Top-centre so toasts never sit behind the fixed tab bar or the selection bar. */}
+      <Toaster position="top-center" />
     </>
   );
 }

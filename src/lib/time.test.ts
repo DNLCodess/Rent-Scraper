@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatLagos, lagosDayKey, startOfLagosDay } from "./time";
+import { formatLagos, lagosDayKey, nextSearchLabel, startOfLagosDay } from "./time";
 
 describe("Lagos time", () => {
   it("keeps 23:30 WAT on the same day", () => {
@@ -18,5 +18,13 @@ describe("Lagos time", () => {
     expect(formatLagos(d, "dayNum")).toBe("29");
     expect(formatLagos(d, "dayShort")).toBe("Sun");
     expect(formatLagos(d, "date")).toContain("29");
+  });
+});
+
+describe("nextSearchLabel", () => {
+  it("says today before 07:00 Lagos and tomorrow from 07:00", () => {
+    expect(nextSearchLabel(new Date("2026-11-26T05:59:00Z"))).toBe("Next search 7:00 today"); // 06:59 WAT
+    expect(nextSearchLabel(new Date("2026-11-26T06:00:00Z"))).toBe("Next search 7:00 tomorrow"); // 07:00 WAT
+    expect(nextSearchLabel(new Date("2026-11-26T23:30:00Z"))).toBe("Next search 7:00 today"); // 00:30 WAT next day
   });
 });

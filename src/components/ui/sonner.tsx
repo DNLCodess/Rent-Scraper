@@ -37,6 +37,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast: "cn-toast",
+          // Lagoon & Brass: readable description, ≥48px pill action in the primary colour.
+          description: "text-text-2! font-medium!",
+          actionButton: "h-12! rounded-full! bg-primary! px-5! text-sm! font-bold! text-white!",
         },
       }}
       {...props}

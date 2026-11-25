@@ -49,21 +49,37 @@ export function TabBarFallback() {
   return <TabBarView active={undefined} count={0} />;
 }
 
-/** Fetches matchCount from GET /api/inbox, refreshing on route change. */
+const INBOX_CHANGED = "inbox:changed";
+
+/** Tells the tab bar to refresh its Inbox badge after listings were dismissed, shortlisted or restored. */
+export function notifyInboxChanged() {
+  window.dispatchEvent(new Event(INBOX_CHANGED));
+}
+
+/** Fetches matchCount from GET /api/inbox, refreshing on route change and on notifyInboxChanged(). */
 function useInboxCount(pathname: string, enabled: boolean): number {
   const [count, setCount] = useState(0);
   useEffect(() => {
     if (!enabled) return;
-    const ctrl = new AbortController();
-    fetch("/api/inbox", { signal: ctrl.signal, cache: "no-store" })
-      .then((res) => (res.ok ? (res.json() as Promise<InboxResponse>) : null))
-      .then((data) => {
-        if (data && typeof data.matchCount === "number") setCount(data.matchCount);
-      })
-      .catch(() => {
-        // Badge is a hint only; keep the last known count on failure.
-      });
-    return () => ctrl.abort();
+    let ctrl = new AbortController();
+    const refresh = () => {
+      ctrl.abort();
+      ctrl = new AbortController();
+      fetch("/api/inbox", { signal: ctrl.signal, cache: "no-store" })
+        .then((res) => (res.ok ? (res.json() as Promise<InboxResponse>) : null))
+        .then((data) => {
+          if (data && typeof data.matchCount === "number") setCount(data.matchCount);
+        })
+        .catch(() => {
+          // Badge is a hint only; keep the last known count on failure.
+        });
+    };
+    refresh();
+    window.addEventListener(INBOX_CHANGED, refresh);
+    return () => {
+      window.removeEventListener(INBOX_CHANGED, refresh);
+      ctrl.abort();
+    };
   }, [pathname, enabled]);
   return count;
 }
