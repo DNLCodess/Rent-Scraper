@@ -1,5 +1,7 @@
 /** Types shared by the API routes and the client UI. */
 
+import type { PowerLevel } from "./parser";
+
 export type RunStatus = "queued" | "running" | "done" | "failed";
 
 export interface Run {
@@ -62,3 +64,40 @@ export interface SettingsView {
 export const MAX_COUNT = 100;
 export const MAX_TAGS = 5;
 export const COUNT_OPTIONS = [10, 30, 50, 100];
+
+export type ListingStatus =
+  | "new"
+  | "dismissed"
+  | "shortlisted"
+  | "messaged"
+  | "inspection_booked"
+  | "inspected"
+  | "negotiating"
+  | "got_it"
+  | "dropped";
+
+export interface InboxItem extends Listing {
+  status: ListingStatus;
+  power_level: PowerLevel;
+  total_package_ngn: number | null;
+  first_seen_at: string;
+  checkManually: boolean;
+  probablyTaken: boolean;
+  strongMatch: boolean;
+}
+
+export interface InboxResponse {
+  items: InboxItem[];
+  newToday: number;
+  matchCount: number;
+  hiddenCount: number;
+}
+
+export type HideReasonCode =
+  | "excluded_area"
+  | "blocked_author"
+  | "over_budget"
+  | "under_budget"
+  | "bedrooms"
+  | "shortlet"
+  | "power_required";
