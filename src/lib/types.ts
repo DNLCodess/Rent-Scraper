@@ -101,3 +101,50 @@ export type HideReasonCode =
   | "bedrooms"
   | "shortlet"
   | "power_required";
+
+export type DropReason = "too_expensive" | "bad_area" | "agent_ghosted" | "fake_listing" | "taken" | "other";
+
+export const DROP_REASONS: DropReason[] = [
+  "too_expensive",
+  "bad_area",
+  "agent_ghosted",
+  "fake_listing",
+  "taken",
+  "other",
+];
+
+export type ListingAction =
+  | { type: "dismiss" }
+  | { type: "shortlist" }
+  | { type: "messaged" }
+  | { type: "replied" }
+  | { type: "book_inspection"; at: string }
+  | {
+      type: "log_inspection";
+      powerConfirmed: string;
+      note?: string;
+      next: "negotiating" | "dropped";
+      dropReason?: DropReason;
+    }
+  | { type: "offer"; offer: number | null; counter: number | null }
+  | { type: "drop"; reason: DropReason }
+  | { type: "got_it" }
+  | { type: "undo" };
+
+export interface Note {
+  id: string;
+  listing_id: string;
+  body: string;
+  created_at: string;
+}
+
+export interface ListingDetail extends InboxItem {
+  notes: Note[];
+  inspection_at: string | null;
+  offer_ngn: number | null;
+  counter_ngn: number | null;
+  power_confirmed: string | null;
+  replied_at: string | null;
+  drop_reason: DropReason | null;
+  highlights: Array<{ start: number; end: number }>;
+}
