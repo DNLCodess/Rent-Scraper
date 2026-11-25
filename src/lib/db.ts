@@ -104,6 +104,7 @@ const LISTING_COLUMNS: [string, string][] = [
 export async function migrate(c: Client): Promise<void> {
   await c.batch([...SCHEMA, ...NEW_TABLES], "write");
   for (const [col, ddl] of LISTING_COLUMNS) await addColumnIfMissing(c, "listings", col, ddl);
+  await addColumnIfMissing(c, "listings", "cover_url", "TEXT");
   await addColumnIfMissing(c, "runs", "source", "TEXT NOT NULL DEFAULT 'manual'");
   await c.execute("UPDATE listings SET first_seen_at = updated_at WHERE first_seen_at IS NULL");
 }

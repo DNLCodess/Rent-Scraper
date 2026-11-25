@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { webhooksParam } from "./apify";
+import { toRawVideo, webhooksParam } from "./apify";
 
 afterEach(() => {
   delete process.env.APP_URL;
@@ -20,5 +20,18 @@ describe("webhooksParam", () => {
     const hooks = JSON.parse(Buffer.from(decodeURIComponent(p.slice(10)), "base64").toString());
     expect(hooks[0].eventTypes).toEqual(["ACTOR.RUN.SUCCEEDED", "ACTOR.RUN.FAILED", "ACTOR.RUN.TIMED_OUT", "ACTOR.RUN.ABORTED"]);
     expect(hooks[0].requestUrl).toBe("https://app.example.com/api/webhooks/apify?secret=a%20b");
+  });
+});
+
+describe("toRawVideo", () => {
+  const base = { id: 1, authorMeta: { name: "a" } };
+  it("prefers videoMeta.coverUrl, then originalCoverUrl, else null", () => {
+    expect(toRawVideo({ ...base, videoMeta: { coverUrl: "c", originalCoverUrl: "o" } })?.coverUrl).toBe("c");
+    expect(toRawVideo({ ...base, videoMeta: { originalCoverUrl: "o" } })?.coverUrl).toBe("o");
+    expect(toRawVideo(base)?.coverUrl).toBeNull();
+  });
+  it("skips error items and items without an author", () => {
+    expect(toRawVideo({ ...base, errorCode: "x" })).toBeNull();
+    expect(toRawVideo({ id: 2 })).toBeNull();
   });
 });

@@ -18,6 +18,7 @@ interface ApifyItem {
   diggCount?: number;
   webVideoUrl?: string;
   authorMeta?: { name?: string; signature?: string };
+  videoMeta?: { coverUrl?: string; originalCoverUrl?: string };
   errorCode?: string;
 }
 
@@ -37,6 +38,23 @@ export function webhooksParam(): string {
     },
   ];
   return `&webhooks=${encodeURIComponent(Buffer.from(JSON.stringify(hooks)).toString("base64"))}`;
+}
+
+/** Normalises one actor item; null for error items and non-video results (e.g. profiles from keyword search). */
+export function toRawVideo(it: ApifyItem): RawVideo | null {
+  if (it.errorCode || !it.id || !it.authorMeta?.name) return null;
+  const author = it.authorMeta.name;
+  const id = String(it.id);
+  return {
+    id,
+    url: it.webVideoUrl || `https://www.tiktok.com/@${author}/video/${id}`,
+    author,
+    caption: it.text ?? "",
+    postedAt: it.createTimeISO ?? (it.createTime ? new Date(it.createTime * 1000).toISOString() : null),
+    likes: it.diggCount ?? null,
+    bio: it.authorMeta.signature || null,
+    coverUrl: it.videoMeta?.coverUrl ?? it.videoMeta?.originalCoverUrl ?? null,
+  };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -117,24 +135,8 @@ export class ApifyScraper implements Scraper {
   }
 
   async items(job: StartedJob): Promise<RawVideo[]> {
-    const fields = "id,text,createTime,createTimeISO,diggCount,webVideoUrl,authorMeta,errorCode";
+    const fields = "id,text,createTime,createTimeISO,diggCount,webVideoUrl,authorMeta,videoMeta,errorCode";
     const items = await this.call<ApifyItem[]>(`/datasets/${job.datasetId}/items?clean=true&format=json&fields=${fields}`);
-    const videos: RawVideo[] = [];
-    for (const it of items) {
-      // Skip error items and non-video results (e.g. profiles from keyword search).
-      if (it.errorCode || !it.id || !it.authorMeta?.name) continue;
-      const author = it.authorMeta.name;
-      const id = String(it.id);
-      videos.push({
-        id,
-        url: it.webVideoUrl || `https://www.tiktok.com/@${author}/video/${id}`,
-        author,
-        caption: it.text ?? "",
-        postedAt: it.createTimeISO ?? (it.createTime ? new Date(it.createTime * 1000).toISOString() : null),
-        likes: it.diggCount ?? null,
-        bio: it.authorMeta.signature || null,
-      });
-    }
-    return videos;
+    return items.map(toRawVideo).filter((v): v is RawVideo => v !== null);
   }
 }

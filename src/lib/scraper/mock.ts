@@ -55,6 +55,7 @@ export class MockScraper implements Scraper {
         postedAt: new Date(Date.now() - ((seed + i * 7919) % 120) * 86_400_000).toISOString(),
         likes: (seed + i * 104729) % 25_000,
         bio: s.bio || null,
+        coverUrl: null,
       };
     });
   }

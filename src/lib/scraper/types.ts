@@ -33,6 +33,7 @@ export interface RawVideo {
   postedAt: string | null; // ISO
   likes: number | null;
   bio: string | null;
+  coverUrl: string | null;
 }
 
 export interface Scraper {

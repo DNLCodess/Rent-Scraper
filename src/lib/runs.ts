@@ -102,7 +102,7 @@ export async function createRun(
 }
 
 /** Upsert scraped videos and link them to the run. Re-parses every time so parser fixes apply. */
-async function ingest(runId: string, tag: string, videos: RawVideo[]) {
+export async function ingest(runId: string, tag: string, videos: RawVideo[]) {
   const ts = now();
   const stmts = videos.flatMap((v) => {
     const p = parseListing(v.caption, v.bio ?? "");
@@ -110,18 +110,19 @@ async function ingest(runId: string, tag: string, videos: RawVideo[]) {
       {
         sql: `INSERT INTO listings (id, run_id, tag, url, author, caption, posted_at, likes, price_raw, price_ngn,
                 price_period, area, bedrooms, phone, bio, updated_at, power_level, power_raw, total_package_ngn,
-                first_seen_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                first_seen_at, cover_url)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT(id) DO UPDATE SET
                 caption = excluded.caption, likes = excluded.likes, bio = COALESCE(excluded.bio, listings.bio),
                 price_raw = excluded.price_raw, price_ngn = excluded.price_ngn, price_period = excluded.price_period,
                 area = excluded.area, bedrooms = excluded.bedrooms, phone = excluded.phone, updated_at = excluded.updated_at,
                 power_level = excluded.power_level, power_raw = excluded.power_raw,
-                total_package_ngn = excluded.total_package_ngn`,
+                total_package_ngn = excluded.total_package_ngn,
+                cover_url = COALESCE(excluded.cover_url, listings.cover_url)`,
         // status, tracker columns and first_seen_at are deliberately never updated on conflict.
         args: [v.id, runId, tag, v.url, v.author, v.caption, v.postedAt, v.likes, p.price_raw, p.price_ngn,
           p.price_period, p.area, p.bedrooms, p.phone, v.bio, ts, p.power_level, p.power_raw, p.total_package_ngn,
-          ts] as Args,
+          ts, v.coverUrl] as Args,
       },
       {
         sql: "INSERT OR IGNORE INTO run_listings (run_id, listing_id, tag) VALUES (?, ?, ?)",
