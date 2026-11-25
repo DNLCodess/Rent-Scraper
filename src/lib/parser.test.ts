@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { parseArea, parseBedrooms, parseListing, parsePhones, parsePrice } from "./parser";
+import {
+  areaLineage,
+  findHighlights,
+  isCity,
+  parseArea,
+  parseBedrooms,
+  parseListing,
+  parsePhones,
+  parsePower,
+  parsePrice,
+  parseTotalPackage,
+  yearlyRent,
+  type PowerLevel,
+  type PricePeriod,
+} from "./parser";
 
 describe("parsePrice", () => {
   const cases: [string, number | null, string | null][] = [
@@ -106,5 +120,95 @@ describe("parseListing", () => {
   it("prefers caption contact over bio", () => {
     const r = parseListing("Call 07031234567", "08031234567");
     expect(r.phone).toBe("+2347031234567");
+  });
+});
+
+describe("parsePower", () => {
+  const cases: [string, PowerLevel][] = [
+    ["24/7 light, Band A", "strong"],
+    ["24hrs power", "strong"],
+    ["constant light", "strong"],
+    ["estate power", "strong"],
+    ["dedicated transformer", "strong"],
+    ["prepaid meter", "mentioned"],
+    ["solar and inverter", "mentioned"],
+    ["Beautiful flat", "unknown"],
+    ["Band Aid", "unknown"],
+  ];
+  it.each(cases)("%s -> %s", (text, level) => {
+    const r = parsePower(text);
+    expect(r.level).toBe(level);
+    if (level === "unknown") expect(r.raw).toBeNull();
+    else expect(text.toLowerCase()).toContain(r.raw!.toLowerCase());
+  });
+  it("returns the matched phrase", () => {
+    expect(parsePower("Nice flat, 24/7 light, Band A").raw).toBe("24/7 light");
+  });
+});
+
+describe("parseTotalPackage", () => {
+  const cases: [string, number | null][] = [
+    ["Total package ₦1.95m", 1_950_000],
+    ["package: 2.2m", 2_200_000],
+    ["total: ₦2m", 2_000_000],
+    ["Rent 1.5m, agency 10%, legal 10%", null],
+  ];
+  it.each(cases)("%s -> %s", (text, want) => {
+    expect(parseTotalPackage(text)).toBe(want);
+  });
+});
+
+describe("yearlyRent", () => {
+  const cases: [number | null, PricePeriod | null, number | null][] = [
+    [1_500_000, "year", 1_500_000],
+    [150_000, "month", 1_800_000],
+    [85_000, "night", null],
+    [800_000, null, 800_000],
+    [null, "year", null],
+  ];
+  it.each(cases)("%s %s -> %s", (n, p, want) => {
+    expect(yearlyRent(n, p)).toBe(want);
+  });
+});
+
+describe("areaLineage / isCity", () => {
+  it("walks to parents", () => {
+    expect(areaLineage("Lekki Phase 1")).toEqual(["Lekki Phase 1", "Lekki"]);
+    expect(areaLineage("Ibeju-Lekki")).toEqual(["Ibeju-Lekki"]);
+    expect(areaLineage("Yaba")).toEqual(["Yaba"]);
+    expect(areaLineage("Nowhere")).toEqual(["Nowhere"]);
+  });
+  it("knows cities", () => {
+    expect(isCity("Lagos")).toBe(true);
+    expect(isCity("Yaba")).toBe(false);
+  });
+});
+
+describe("findHighlights", () => {
+  it("returns sorted spans for the key facts", () => {
+    const c = "2 bedroom flat in Yaba, 24/7 light. Rent ₦1.5m per annum";
+    const spans = findHighlights(c);
+    const texts = spans.map((s) => c.slice(s.start, s.end));
+    expect(texts.slice(0, 3)).toEqual(["2 bedroom", "Yaba", "24/7 light"]);
+    expect(texts[3]).toContain("₦1.5m");
+    for (let i = 1; i < spans.length; i++) expect(spans[i].start).toBeGreaterThanOrEqual(spans[i - 1].end);
+  });
+  it("is empty when nothing is found", () => {
+    expect(findHighlights("hello")).toEqual([]);
+  });
+});
+
+describe("total package in parseListing", () => {
+  it("captures the package without changing rent", () => {
+    const r = parseListing("2 bedroom Yaba. Rent 1.5m per annum. Total package ₦1.95m");
+    expect(r.price_ngn).toBe(1_500_000);
+    expect(r.total_package_ngn).toBe(1_950_000);
+  });
+  it("is null when not stated", () => {
+    expect(parseListing("Rent ₦1.5m").total_package_ngn).toBeNull();
+  });
+  it("carries power fields", () => {
+    expect(parseListing("Yaba 24/7 light").power_level).toBe("strong");
+    expect(parseListing("Yaba flat").power_raw).toBeNull();
   });
 });

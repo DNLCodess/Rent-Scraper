@@ -19,7 +19,12 @@ export interface ParsedListing {
   area: string | null;
   bedrooms: number | null;
   phone: string | null;
+  power_level: PowerLevel;
+  power_raw: string | null;
+  total_package_ngn: number | null;
 }
+
+export type PowerLevel = "strong" | "mentioned" | "unknown";
 
 // ---------------------------------------------------------------------------
 // Price
@@ -50,28 +55,47 @@ const PERIOD_PATTERNS: [PricePeriod, RegExp][] = [
 ];
 
 // Words right before a figure that make it more / less likely to be the rent.
-const RENT_HINT = /\b(rent|price|amount|cost|annual|yearly|per annum|total)\b/i;
+const RENT_HINT = /\b(rent|price|amount|cost|annual|yearly|per annum)\b/i;
+const PACKAGE_HINT = /\b(total|package)\b/i;
 const FEE_HINT = /\b(caution|agency|agent|agreement|legal|service\s*charge|inspection|deposit|commission|fees?)\b/i;
 
-function detectPeriod(after: string): PricePeriod | null {
+interface Span {
+  start: number;
+  end: number;
+}
+
+function detectPeriod(after: string): (Span & { period: PricePeriod }) | null {
   // Only look until the next number so we don't borrow another figure's period.
   const window = after.slice(0, 30).split(/\d/)[0];
-  for (const [period, re] of PERIOD_PATTERNS) if (re.test(window)) return period;
+  for (const [period, re] of PERIOD_PATTERNS) {
+    const m = re.exec(window);
+    if (m) return { period, start: m.index, end: m.index + m[0].length };
+  }
   return null;
 }
 
-/** Returns the most likely rent figure in the text, or null. */
-export function parsePrice(text: string): ParsedPrice | null {
-  let best: (ParsedPrice & { score: number }) | null = null;
+/** Figure in ngn from a PRICE_RE match, or null if it is not price-like. */
+function figureNgn(groups: Record<string, string | undefined> | undefined): number | null {
+  const { cur, num, suf } = groups ?? {};
+  if (!num) return null;
+  // A bare number like "2" or "08031234567" is not a price.
+  if (!cur && !suf && !num.includes(",")) return null;
+  const ngn = Math.round(parseFloat(num.replace(/,/g, "")) * (suf ? MULTIPLIER[suf.toLowerCase()] : 1));
+  return ngn < MIN_PRICE || ngn > MAX_PRICE ? null : ngn;
+}
+
+interface PriceHit extends ParsedPrice {
+  start: number;
+  end: number; // end of the figure
+  periodSpan: Span | null; // absolute offsets of the period phrase
+}
+
+function findPrice(text: string): PriceHit | null {
+  let best: (PriceHit & { score: number }) | null = null;
 
   for (const m of text.matchAll(PRICE_RE)) {
-    const { cur, num, suf } = m.groups ?? {};
-    const hasComma = num.includes(",");
-    // A bare number like "2" or "08031234567" is not a price.
-    if (!cur && !suf && !hasComma) continue;
-
-    const ngn = Math.round(parseFloat(num.replace(/,/g, "")) * (suf ? MULTIPLIER[suf.toLowerCase()] : 1));
-    if (ngn < MIN_PRICE || ngn > MAX_PRICE) continue;
+    const ngn = figureNgn(m.groups);
+    if (ngn === null) continue;
 
     const start = m.index ?? 0;
     const end = start + m[0].length;
@@ -80,14 +104,102 @@ export function parsePrice(text: string): ParsedPrice | null {
     let score = 0;
     if (RENT_HINT.test(before)) score += 2;
     if (FEE_HINT.test(before)) score -= 3;
+    if (PACKAGE_HINT.test(before)) score -= 3;
 
     if (!best || score > best.score) {
-      best = { raw: m[0].trim(), ngn, period: detectPeriod(text.slice(end)), score };
+      const p = detectPeriod(text.slice(end));
+      best = {
+        raw: m[0].trim(),
+        ngn,
+        period: p?.period ?? null,
+        start,
+        end,
+        periodSpan: p ? { start: end + p.start, end: end + p.end } : null,
+        score,
+      };
     }
   }
+  return best;
+}
 
-  if (!best) return null;
-  return { raw: best.raw, ngn: best.ngn, period: best.period };
+/** Returns the most likely rent figure in the text, or null. */
+export function parsePrice(text: string): ParsedPrice | null {
+  const hit = findPrice(text);
+  return hit ? { raw: hit.raw, ngn: hit.ngn, period: hit.period } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Total package (only when the caption states it)
+// ---------------------------------------------------------------------------
+
+const PACKAGE_KEY_RE = /(?<![a-z])(?:total\s*package|package|total)(?![a-z])/gi;
+const PACKAGE_FIGURE_RE = new RegExp(`^[\\s:=\\-]*(?:(?:is|of)\\s+)?(?:${PRICE_RE.source})`, "i");
+
+function findPackage(text: string): (Span & { ngn: number }) | null {
+  for (const k of text.matchAll(PACKAGE_KEY_RE)) {
+    const keyEnd = (k.index ?? 0) + k[0].length;
+    const m = PACKAGE_FIGURE_RE.exec(text.slice(keyEnd));
+    if (!m) continue;
+    const ngn = figureNgn(m.groups);
+    if (ngn !== null) return { ngn, start: k.index ?? 0, end: keyEnd + m[0].length };
+  }
+  return null;
+}
+
+/** The all-in figure when the caption states one ("total package ₦1.95m"). Never computed. */
+export function parseTotalPackage(text: string): number | null {
+  return findPackage(text)?.ngn ?? null;
+}
+
+/** Rent per year: yearly as is, monthly x12, nightly unknown. */
+export function yearlyRent(ngn: number | null, period: PricePeriod | null): number | null {
+  if (ngn === null) return null;
+  if (period === "night") return null;
+  return period === "month" ? ngn * 12 : ngn;
+}
+
+// ---------------------------------------------------------------------------
+// Power
+// ---------------------------------------------------------------------------
+
+const POWER_WORD = String.raw`(?:\s+(?:light|power|electricity|supply))?`;
+const STRONG_POWER: RegExp[] = [
+  new RegExp(String.raw`(?<![a-z0-9])24\s*/\s*7${POWER_WORD}(?![a-z0-9])`, "i"),
+  new RegExp(String.raw`(?<![a-z0-9])24\s*-?\s*(?:hrs?|hours?)${POWER_WORD}(?![a-z0-9])`, "i"),
+  /\b(?:constant|uninterrupted|steady|stable)\s+(?:light|power|electricity)\b/i,
+  /\bestate\s+power\b/i,
+  /\bdedicated\s+transformer\b/i,
+  /\bband\s*-?\s*a\b/i,
+];
+const MENTIONED_POWER: RegExp[] = [
+  /\bprepaid\s+meter\b/i,
+  /\bsolar\b/i,
+  /\binverter\b/i,
+  /\bgenerator\b/i,
+  /\btransformer\b/i,
+  /\bmeter\b/i,
+  /\b(?:light|power|electricity)\b/i,
+];
+
+function findPower(text: string): (Span & { level: PowerLevel }) | null {
+  for (const [level, list] of [
+    ["strong", STRONG_POWER],
+    ["mentioned", MENTIONED_POWER],
+  ] as const) {
+    let best: Span | null = null;
+    for (const re of list) {
+      const m = re.exec(text);
+      if (m && (!best || m.index < best.start)) best = { start: m.index, end: m.index + m[0].length };
+    }
+    if (best) return { level, ...best };
+  }
+  return null;
+}
+
+/** How firmly the caption promises electricity; unknown when it says nothing. */
+export function parsePower(text: string): { level: PowerLevel; raw: string | null } {
+  const hit = findPower(text);
+  return hit ? { level: hit.level, raw: text.slice(hit.start, hit.end) } : { level: "unknown", raw: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -98,15 +210,22 @@ const WORD_NUMBERS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4
 
 /** Number of bedrooms; 0 = studio / self contain. Null if not stated. */
 export function parseBedrooms(text: string): number | null {
+  return findBedrooms(text)?.n ?? null;
+}
+
+function findBedrooms(text: string): (Span & { n: number }) | null {
+  const span = (m: RegExpMatchArray) => ({ start: m.index ?? 0, end: (m.index ?? 0) + m[0].length });
   const digit = text.match(/(?<![a-z0-9])(\d{1,2})\s*-?\s*(?:bedroom|bdrm|bdr|bed|br\b)/i);
   if (digit) {
     const n = parseInt(digit[1], 10);
-    if (n >= 1 && n <= 10) return n;
+    if (n >= 1 && n <= 10) return { n, ...span(digit) };
   }
   const word = text.match(/\b(one|two|three|four|five|six|seven)\s*-?\s*(?:bedroom|bed\b)/i);
-  if (word) return WORD_NUMBERS[word[1].toLowerCase()];
-  if (/mini\s*-?\s*flat|room\s*(?:and|&|n)\s*parlou?r/i.test(text)) return 1;
-  if (/self\s*-?\s*con(?:tain(?:ed)?)?\b|\bstudio\b/i.test(text)) return 0;
+  if (word) return { n: WORD_NUMBERS[word[1].toLowerCase()], ...span(word) };
+  const mini = text.match(/mini\s*-?\s*flat|room\s*(?:and|&|n)\s*parlou?r/i);
+  if (mini) return { n: 1, ...span(mini) };
+  const studio = text.match(/self\s*-?\s*con(?:tain(?:ed)?)?\b|\bstudio\b/i);
+  if (studio) return { n: 0, ...span(studio) };
   return null;
 }
 
@@ -227,6 +346,37 @@ const AREAS: Record<string, string[]> = {
   Guzape: [],
 };
 
+// Child -> parent. Anything not listed has no parent.
+const AREA_PARENTS: Record<string, string> = {
+  "Lekki Phase 1": "Lekki",
+  "Lekki Phase 2": "Lekki",
+  Ikate: "Lekki",
+  Agungi: "Lekki",
+  Osapa: "Lekki",
+  Jakande: "Lekki",
+  Chevron: "Lekki",
+  Ikota: "Lekki",
+  "Ikeja GRA": "Ikeja",
+  "Allen Avenue": "Ikeja",
+  Opebi: "Ikeja",
+  Alausa: "Ikeja",
+  Oregun: "Ikeja",
+  "Banana Island": "Ikoyi",
+  Parkview: "Ikoyi",
+};
+
+/** The area followed by its ancestors, most specific first. */
+export function areaLineage(area: string): string[] {
+  const out = [area];
+  for (let p = AREA_PARENTS[area]; p && !out.includes(p); p = AREA_PARENTS[p]) out.push(p);
+  return out;
+}
+
+/** True when the name is a city rather than a neighbourhood. */
+export function isCity(area: string): boolean {
+  return Object.hasOwn(CITIES, area);
+}
+
 // Cities are only used when no specific area is found.
 const CITIES: Record<string, string[]> = {
   Lagos: [],
@@ -262,28 +412,37 @@ function buildMatchers(table: Record<string, string[]>): AreaMatcher[] {
 const AREA_MATCHERS = buildMatchers(AREAS);
 const CITY_MATCHERS = buildMatchers(CITIES);
 
-function findEarliest(text: string, matchers: AreaMatcher[]): string | null {
+function findEarliest(text: string, matchers: AreaMatcher[]): (Span & { name: string }) | null {
   const hashtags = [...text.matchAll(/#(\w+)/g)].map((h) => ({ tag: h[1].toLowerCase(), index: h.index ?? 0 }));
-  let best: { name: string; index: number; len: number } | null = null;
+  let best: { name: string; index: number; len: number; end: number } | null = null;
 
   for (const m of matchers) {
-    let index = text.search(m.re);
+    const hit = m.re.exec(text);
+    let index = hit ? hit.index : -1;
+    let end = hit ? hit.index + hit[0].length : -1;
     // "#ajahapartments" style hashtags: match on prefix (aliases of 4+ chars only).
     if (index < 0 && m.tag.length >= 4) {
       const h = hashtags.find((h) => h.tag.startsWith(m.tag));
-      if (h) index = h.index;
+      if (h) {
+        index = h.index;
+        end = h.index + 1 + h.tag.length;
+      }
     }
     if (index < 0) continue;
     // Earliest mention wins; at the same position the longer, more specific alias wins.
     if (!best || index < best.index || (index === best.index && m.tag.length > best.len)) {
-      best = { name: m.name, index, len: m.tag.length };
+      best = { name: m.name, index, len: m.tag.length, end };
     }
   }
-  return best?.name ?? null;
+  return best ? { name: best.name, start: best.index, end: best.end } : null;
 }
 
 /** Most specific known area mentioned in the text, falling back to the city. */
 export function parseArea(text: string): string | null {
+  return findAreaHit(text)?.name ?? null;
+}
+
+function findAreaHit(text: string) {
   return findEarliest(text, AREA_MATCHERS) ?? findEarliest(text, CITY_MATCHERS);
 }
 
@@ -310,6 +469,7 @@ export function parseListing(caption: string, bio = ""): ParsedListing {
   const price = parsePrice(caption);
   const phones = parsePhones(caption);
   const contact = phones.length ? phones : parsePhones(bio);
+  const power = parsePower(caption);
   return {
     price_raw: price?.raw ?? null,
     price_ngn: price?.ngn ?? null,
@@ -317,5 +477,37 @@ export function parseListing(caption: string, bio = ""): ParsedListing {
     area: parseArea(caption),
     bedrooms: parseBedrooms(caption),
     phone: contact.length ? contact.join(", ") : null,
+    power_level: power.level,
+    power_raw: power.raw,
+    total_package_ngn: parseTotalPackage(caption),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Highlights
+// ---------------------------------------------------------------------------
+
+/** Character spans of the facts the parser found, sorted and non-overlapping (overlaps merge). */
+export function findHighlights(caption: string): Span[] {
+  const spans: Span[] = [];
+  const price = findPrice(caption);
+  if (price) spans.push({ start: price.start, end: price.periodSpan?.end ?? price.end });
+  const area = findAreaHit(caption);
+  if (area) spans.push({ start: area.start, end: area.end });
+  const beds = findBedrooms(caption);
+  if (beds) spans.push({ start: beds.start, end: beds.end });
+  const power = findPower(caption);
+  if (power) spans.push({ start: power.start, end: power.end });
+  const pkg = findPackage(caption);
+  if (pkg) spans.push({ start: pkg.start, end: pkg.end });
+  for (const m of caption.matchAll(PHONE_RE)) spans.push({ start: m.index ?? 0, end: (m.index ?? 0) + m[0].length });
+
+  spans.sort((a, b) => a.start - b.start || a.end - b.end);
+  const out: Span[] = [];
+  for (const s of spans) {
+    const last = out[out.length - 1];
+    if (last && s.start < last.end) last.end = Math.max(last.end, s.end);
+    else out.push({ ...s });
+  }
+  return out;
 }
