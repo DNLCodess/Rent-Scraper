@@ -45,35 +45,55 @@ function checkMoney(v: unknown, label: string): number | null {
   return Math.round(n);
 }
 
-export async function getListing(id: string, now: Date = new Date()): Promise<ListingDetail | null> {
+type Row = Awaited<ReturnType<Awaited<ReturnType<typeof db>>["execute"]>>["rows"][number];
+
+/** Maps listing rows to details, loading notes for all of them in one query. */
+export async function toDetails(rows: Row[], now: Date = new Date()): Promise<ListingDetail[]> {
+  if (rows.length === 0) return [];
   const c = await db();
-  const res = await c.execute({ sql: "SELECT * FROM listings WHERE id = ?", args: [id] });
-  const r = res.rows[0];
-  if (!r) return null;
+  const ids = rows.map((r) => r.id as string);
   const [prefs, blocked, notes] = await Promise.all([
     getPreferences(),
     blockedSet(),
-    c.execute({ sql: "SELECT * FROM notes WHERE listing_id = ? ORDER BY created_at, rowid", args: [id] }),
+    c.execute({
+      sql: `SELECT * FROM notes WHERE listing_id IN (${ids.map(() => "?").join(",")}) ORDER BY created_at, rowid`,
+      args: ids,
+    }),
   ]);
-  const { item } = scoreRow(r, prefs, blocked, now);
-  const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
-  const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
-  return {
-    ...item,
-    notes: notes.rows.map((n) => ({
+  const byListing = new Map<string, Note[]>();
+  for (const n of notes.rows) {
+    const note: Note = {
       id: n.id as string,
       listing_id: n.listing_id as string,
       body: n.body as string,
       created_at: n.created_at as string,
-    })),
-    inspection_at: str(r.inspection_at),
-    offer_ngn: num(r.offer_ngn),
-    counter_ngn: num(r.counter_ngn),
-    power_confirmed: str(r.power_confirmed),
-    replied_at: str(r.replied_at),
-    drop_reason: str(r.drop_reason) as DropReason | null,
-    highlights: findHighlights(item.caption).map((s) => ({ start: s.start, end: s.end })),
-  };
+    };
+    const list = byListing.get(note.listing_id);
+    if (list) list.push(note);
+    else byListing.set(note.listing_id, [note]);
+  }
+  const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
+  return rows.map((r) => {
+    const { item } = scoreRow(r, prefs, blocked, now);
+    return {
+      ...item,
+      notes: byListing.get(r.id as string) ?? [],
+      status_changed_at: str(r.status_changed_at),
+      inspection_at: str(r.inspection_at),
+      offer_ngn: num(r.offer_ngn),
+      counter_ngn: num(r.counter_ngn),
+      power_confirmed: str(r.power_confirmed),
+      replied_at: str(r.replied_at),
+      drop_reason: str(r.drop_reason) as DropReason | null,
+      highlights: findHighlights(item.caption).map((s) => ({ start: s.start, end: s.end })),
+    };
+  });
+}
+
+export async function getListing(id: string, now: Date = new Date()): Promise<ListingDetail | null> {
+  const res = await (await db()).execute({ sql: "SELECT * FROM listings WHERE id = ?", args: [id] });
+  return (await toDetails(res.rows, now))[0] ?? null;
 }
 
 export async function applyAction(id: string, action: ListingAction, now: Date = new Date()): Promise<ListingDetail> {

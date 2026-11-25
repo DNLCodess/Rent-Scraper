@@ -140,6 +140,7 @@ export interface Note {
 
 export interface ListingDetail extends InboxItem {
   notes: Note[];
+  status_changed_at: string | null;
   inspection_at: string | null;
   offer_ngn: number | null;
   counter_ngn: number | null;
@@ -147,4 +148,12 @@ export interface ListingDetail extends InboxItem {
   replied_at: string | null;
   drop_reason: DropReason | null;
   highlights: Array<{ start: number; end: number }>;
+}
+
+export type TrackerStage = "shortlisted" | "messaged" | "inspection_booked" | "inspected" | "negotiating";
+
+export interface TrackerView {
+  activeCount: number;
+  thisWeek: { inspections: ListingDetail[]; nudges: ListingDetail[] };
+  stages: Record<TrackerStage, ListingDetail[]>;
 }
