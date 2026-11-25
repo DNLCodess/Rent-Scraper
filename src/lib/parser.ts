@@ -415,6 +415,9 @@ function buildMatchers(table: Record<string, string[]>): AreaMatcher[] {
   return out;
 }
 
+/** Every canonical area and city name the parser knows. */
+export const KNOWN_AREAS: string[] = [...Object.keys(AREAS), ...Object.keys(CITIES)];
+
 const AREA_MATCHERS = buildMatchers(AREAS);
 const CITY_MATCHERS = buildMatchers(CITIES);
 
