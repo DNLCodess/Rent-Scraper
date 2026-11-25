@@ -63,7 +63,11 @@ async function failRun(id: string, err: unknown) {
 }
 
 /** Validate input, record the run and start one scraper job per term. */
-export async function createRun(rawTags: unknown, rawCount: unknown): Promise<Run> {
+export async function createRun(
+  rawTags: unknown,
+  rawCount: unknown,
+  source: "manual" | "scheduled" = "manual",
+): Promise<Run> {
   if (!Array.isArray(rawTags)) throw new InputError("tags must be an array");
   const terms = rawTags.map((t) => toSearchTerm(String(t))).filter((t): t is SearchTerm => !!t);
   // Dedupe by label.
@@ -76,8 +80,8 @@ export async function createRun(rawTags: unknown, rawCount: unknown): Promise<Ru
   const id = randomUUID();
   const c = await db();
   await c.execute({
-    sql: "INSERT INTO runs (id, tags, count, status, created_at) VALUES (?, ?, ?, 'queued', ?)",
-    args: [id, JSON.stringify(unique.map(termLabel)), count, now()],
+    sql: "INSERT INTO runs (id, tags, count, status, created_at, source) VALUES (?, ?, ?, 'queued', ?, ?)",
+    args: [id, JSON.stringify(unique.map(termLabel)), count, now(), source],
   });
 
   try {
@@ -105,14 +109,19 @@ async function ingest(runId: string, tag: string, videos: RawVideo[]) {
     return [
       {
         sql: `INSERT INTO listings (id, run_id, tag, url, author, caption, posted_at, likes, price_raw, price_ngn,
-                price_period, area, bedrooms, phone, bio, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                price_period, area, bedrooms, phone, bio, updated_at, power_level, power_raw, total_package_ngn,
+                first_seen_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT(id) DO UPDATE SET
                 caption = excluded.caption, likes = excluded.likes, bio = COALESCE(excluded.bio, listings.bio),
                 price_raw = excluded.price_raw, price_ngn = excluded.price_ngn, price_period = excluded.price_period,
-                area = excluded.area, bedrooms = excluded.bedrooms, phone = excluded.phone, updated_at = excluded.updated_at`,
+                area = excluded.area, bedrooms = excluded.bedrooms, phone = excluded.phone, updated_at = excluded.updated_at,
+                power_level = excluded.power_level, power_raw = excluded.power_raw,
+                total_package_ngn = excluded.total_package_ngn`,
+        // status, tracker columns and first_seen_at are deliberately never updated on conflict.
         args: [v.id, runId, tag, v.url, v.author, v.caption, v.postedAt, v.likes, p.price_raw, p.price_ngn,
-          p.price_period, p.area, p.bedrooms, p.phone, v.bio, ts] as Args,
+          p.price_period, p.area, p.bedrooms, p.phone, v.bio, ts, p.power_level, p.power_raw, p.total_package_ngn,
+          ts] as Args,
       },
       {
         sql: "INSERT OR IGNORE INTO run_listings (run_id, listing_id, tag) VALUES (?, ?, ?)",
@@ -179,6 +188,17 @@ export async function advanceRun(id: string): Promise<Run | null> {
     args: [status, JSON.stringify(jobs), scraped, resultCount, error, error, status, now(), id],
   });
   return getRun(id);
+}
+
+/** Advance the run that owns an Apify run id (webhook entry point). Idempotent. */
+export async function advanceRunByJobId(jobId: string): Promise<Run | null> {
+  // LIKE only narrows candidates (wildcards can over-match); the exact check is below.
+  const r = await (await db()).execute({ sql: "SELECT id, jobs FROM runs WHERE jobs LIKE ?", args: [`%${jobId}%`] });
+  for (const row of r.rows) {
+    const jobs = JSON.parse(row.jobs as string) as Job[];
+    if (jobs.some((j) => j.jobId === jobId)) return advanceRun(row.id as string);
+  }
+  return null;
 }
 
 /** Read filter params from a URL query string. */

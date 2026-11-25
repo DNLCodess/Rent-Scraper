@@ -21,6 +21,24 @@ interface ApifyItem {
   errorCode?: string;
 }
 
+/**
+ * Ad-hoc webhook (docs.apify.com/platform/integrations/webhooks/ad-hoc-webhooks): a `webhooks`
+ * query parameter holding a base64 JSON array. Only added when APP_URL and APIFY_WEBHOOK_SECRET
+ * are set; polling still works without it.
+ */
+export function webhooksParam(): string {
+  const base = process.env.APP_URL?.replace(/\/+$/, "");
+  const secret = process.env.APIFY_WEBHOOK_SECRET;
+  if (!base || !secret) return "";
+  const hooks = [
+    {
+      eventTypes: ["ACTOR.RUN.SUCCEEDED", "ACTOR.RUN.FAILED", "ACTOR.RUN.TIMED_OUT", "ACTOR.RUN.ABORTED"],
+      requestUrl: `${base}/api/webhooks/apify?secret=${encodeURIComponent(secret)}`,
+    },
+  ];
+  return `&webhooks=${encodeURIComponent(Buffer.from(JSON.stringify(hooks)).toString("base64"))}`;
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class ApifyScraper implements Scraper {
@@ -76,7 +94,7 @@ export class ApifyScraper implements Scraper {
     };
     // maxItems caps what the run can return (and bill) regardless of input.
     const { data } = await this.call<{ data: { id: string; defaultDatasetId: string } }>(
-      `/acts/${ACTOR}/runs?maxItems=${count}`,
+      `/acts/${ACTOR}/runs?maxItems=${count}${webhooksParam()}`,
       { method: "POST", body: JSON.stringify(input) },
     );
     return { jobId: data.id, datasetId: data.defaultDatasetId };
