@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Bookmark, Ellipsis, X } from "lucide-react";
 import { Cover } from "@/components/app/cover";
 import { PowerTag } from "@/components/app/power-tag";
-import { formatHomeTitle, formatNaira, formatPeriod, formatPosted, formatPower } from "@/lib/format";
+import { formatHomeTitle, formatNaira, formatPeriod, formatPosted, powerLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { InboxItem } from "@/lib/types";
 
@@ -243,7 +243,7 @@ function ReelCard({ item, hasNext, onAction, onMenu }: ReelProps) {
             </div>
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-3 text-sm leading-[1.4]">
-                <PowerTag level={item.power_level} label={formatPower(item.power_level)} />
+                <PowerTag level={item.power_level} label={powerLabel(item.power_level, item.power_raw)} />
                 <span className="font-medium text-[#CFDADA]">{formatPosted(item)}</span>
               </div>
               <p className="m-0 text-[13px] leading-[1.4] font-medium text-[#AEBEBE]">{handle}</p>

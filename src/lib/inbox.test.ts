@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db, useTestDb } from "./db";
-import { getHidden, getInbox } from "./inbox";
-import { blockAuthor, updatePreferences } from "./preferences";
+import { getHidden, getInbox, scoreRow } from "./inbox";
+import { blockAuthor, DEFAULT_PREFERENCES, updatePreferences } from "./preferences";
 
 const now = new Date("2026-11-25T12:00:00Z");
 const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString();
@@ -96,5 +96,43 @@ describe("getHidden", () => {
     expect(h).toHaveLength(1);
     expect(h[0].item.id).toBe(id);
     expect(h[0].reason).toBe("excluded_area");
+  });
+});
+
+describe("scoreRow", () => {
+  const row = {
+    id: "v1",
+    tag: "t",
+    url: "u",
+    author: "a",
+    caption: "c",
+    posted_at: null,
+    likes: null,
+    price_raw: null,
+    price_ngn: null,
+    price_period: null,
+    area: null,
+    bedrooms: null,
+    phone: null,
+    bio: null,
+    status: "new",
+    power_level: "strong",
+    total_package_ngn: null,
+    first_seen_at: hoursAgo(1),
+  };
+
+  it("carries the caption's power phrase", () => {
+    const { item } = scoreRow(
+      { ...row, power_raw: "24/7 light, Band A" } as never,
+      DEFAULT_PREFERENCES,
+      new Set(),
+      now,
+    );
+    expect(item.power_raw).toBe("24/7 light, Band A");
+  });
+
+  it("uses null when the caption gave none", () => {
+    const { item } = scoreRow({ ...row, power_raw: null } as never, DEFAULT_PREFERENCES, new Set(), now);
+    expect(item.power_raw).toBeNull();
   });
 });

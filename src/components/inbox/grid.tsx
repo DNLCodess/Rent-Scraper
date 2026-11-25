@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Bookmark, Check, X } from "lucide-react";
 import { Cover } from "@/components/app/cover";
 import { PowerTag } from "@/components/app/power-tag";
-import { formatBedsShort, formatHomeTitle, formatNaira, formatPeriod, formatPower } from "@/lib/format";
+import { formatBedsShort, formatHomeTitle, formatNaira, formatPeriod, powerLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { InboxItem } from "@/lib/types";
 
@@ -246,7 +246,7 @@ function Tile({ item, selected, onToggle }: { item: InboxItem; selected: boolean
         {item.power_level !== "unknown" && (
           <PowerTag
             level={item.power_level}
-            label={formatPower(item.power_level)}
+            label={powerLabel(item.power_level, item.power_raw)}
             size="sm"
             className="mt-1 self-start"
           />

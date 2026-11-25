@@ -79,6 +79,8 @@ export type ListingStatus =
 export interface InboxItem extends Listing {
   status: ListingStatus;
   power_level: PowerLevel;
+  /** The caption's power phrase, e.g. "24/7 light, Band A"; null when none was found. */
+  power_raw: string | null;
   total_package_ngn: number | null;
   first_seen_at: string;
   checkManually: boolean;

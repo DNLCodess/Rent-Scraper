@@ -107,3 +107,16 @@ export function formatPower(level: "strong" | "mentioned" | "unknown"): string {
   if (level === "mentioned") return "Power mentioned";
   return "";
 }
+
+const POWER_LABEL_MAX = 24;
+
+/**
+ * Power tag text: the caption's own phrase when there is one ("24/7 light, Band A"),
+ * first letter capitalised, whitespace collapsed, capped at 24 characters; otherwise the generic label.
+ */
+export function powerLabel(level: "strong" | "mentioned" | "unknown", raw: string | null | undefined): string {
+  const text = raw?.replace(/\s+/g, " ").trim();
+  if (!text) return formatPower(level);
+  const capped = text.length > POWER_LABEL_MAX ? `${text.slice(0, POWER_LABEL_MAX - 1).trimEnd()}…` : text;
+  return capped.charAt(0).toUpperCase() + capped.slice(1);
+}

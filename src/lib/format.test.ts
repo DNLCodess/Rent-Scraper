@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAge, formatHomeTitle, formatPeriod, formatPosted } from "./format";
+import { formatAge, formatHomeTitle, formatPeriod, formatPosted, powerLabel } from "./format";
 
 const now = new Date("2026-11-26T12:00:00Z");
 
@@ -27,5 +27,26 @@ describe("inbox card labels", () => {
     expect(formatPeriod(null)).toBe("/ year");
     expect(formatPeriod("month")).toBe("/ month");
     expect(formatPeriod(null, true)).toBe("/yr");
+  });
+});
+
+describe("powerLabel", () => {
+  it("uses the caption phrase, capitalised with whitespace collapsed", () => {
+    expect(powerLabel("strong", "24/7 light,  Band A")).toBe("24/7 light, Band A");
+    expect(powerLabel("strong", "constant\n power")).toBe("Constant power");
+    expect(powerLabel("mentioned", "  band b ")).toBe("Band b");
+  });
+
+  it("caps long phrases at 24 characters with an ellipsis", () => {
+    const label = powerLabel("strong", "uninterrupted power supply all day and night");
+    expect(label).toBe("Uninterrupted power sup…");
+    expect(label).toHaveLength(24);
+    expect(powerLabel("strong", "a".repeat(24))).toBe("A" + "a".repeat(23));
+  });
+
+  it("falls back to the generic label without a phrase", () => {
+    expect(powerLabel("strong", null)).toBe("Constant power");
+    expect(powerLabel("mentioned", "   ")).toBe("Power mentioned");
+    expect(powerLabel("unknown", undefined)).toBe("");
   });
 });

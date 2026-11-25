@@ -36,6 +36,7 @@ export function scoreRow(r: Row, prefs: Preferences, blocked: Set<string>, now: 
     seen_before: false, // the Inbox is cross-run
     status: r.status as ListingStatus,
     power_level: r.power_level as PowerLevel,
+    power_raw: (r.power_raw as string | null) ?? null,
     total_package_ngn: r.total_package_ngn === null ? null : Number(r.total_package_ngn),
     first_seen_at: firstSeen,
   };
