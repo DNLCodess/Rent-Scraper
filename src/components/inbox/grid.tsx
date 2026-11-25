@@ -14,8 +14,8 @@ interface GridProps {
   items: InboxItem[];
   /** The normal Inbox header, shown while nothing is selected. */
   header: ReactNode;
-  /** Applies a batch action; resolves once the Inbox has been updated. */
-  onBatch: (ids: string[], type: BatchType) => Promise<void>;
+  /** Applies a batch action; resolves true once the Inbox has been updated, false if it failed. */
+  onBatch: (ids: string[], type: BatchType) => Promise<boolean>;
 }
 
 interface QuickChip {
@@ -93,8 +93,8 @@ export function Grid({ items, header, onBatch }: GridProps) {
     if (n === 0 || busy) return;
     setBusy(true);
     try {
-      await onBatch([...selected], type);
-      setPicked(new Set());
+      // Keep the selection after a failure so the owner can retry.
+      if (await onBatch([...selected], type)) setPicked(new Set());
     } finally {
       setBusy(false);
     }

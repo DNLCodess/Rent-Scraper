@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api/client";
 import { formatHomeTitle } from "@/lib/format";
+import { withoutListings } from "@/lib/inbox-view";
 import { cn } from "@/lib/utils";
 import type { InboxItem, InboxResponse } from "@/lib/types";
 import { CaughtUp } from "./caught-up";
@@ -19,7 +20,6 @@ import { Reel, type ReelAction } from "./reel";
 type View = "reel" | "grid";
 
 const VIEW_KEY = "inbox:view";
-const DAY_MS = 86_400_000;
 const UNDO_MS = 6000;
 
 function readView(): View {
@@ -60,6 +60,8 @@ export function Inbox() {
   const [view, setView] = useState<View>("reel");
   const [menuItem, setMenuItem] = useState<InboxItem | null>(null);
   const loadSeq = useRef(0);
+  /** Listings with a dismiss/shortlist sent (or succeeded); a second call for the same id is ignored until undo or failure. */
+  const acted = useRef(new Set<string>());
 
   /** Loads the Inbox and hunt state; a newer load wins over an older one still in flight. */
   const load = useCallback(() => {
@@ -67,7 +69,8 @@ export function Inbox() {
     return fetchInbox().then(
       ([inbox, prefs]) => {
         if (seq !== loadSeq.current) return;
-        setData(inbox);
+        // A load that started before a dismiss/shortlist landed must not bring that card back.
+        setData(withoutListings(inbox, acted.current));
         if (prefs) setHuntDone(prefs.huntState === "done");
         setError(null);
       },
@@ -89,19 +92,7 @@ export function Inbox() {
 
   /** Drops listings from the screen right away; counts follow without a refetch. */
   function removeLocal(ids: string[]) {
-    const gone = new Set(ids);
-    const since = Date.now() - DAY_MS;
-    setData((d) => {
-      if (!d) return d;
-      const removed = d.items.filter((i) => gone.has(i.id));
-      const fresh = removed.filter((i) => new Date(i.first_seen_at).getTime() >= since).length;
-      return {
-        ...d,
-        items: d.items.filter((i) => !gone.has(i.id)),
-        matchCount: Math.max(0, d.matchCount - removed.length),
-        newToday: Math.max(0, d.newToday - fresh),
-      };
-    });
+    setData((d) => d && withoutListings(d, ids));
   }
 
   async function undo(item: InboxItem) {
@@ -110,6 +101,7 @@ export function Inbox() {
         method: "POST",
         body: JSON.stringify({ type: "undo" }),
       });
+      acted.current.delete(item.id);
       await load();
       notifyInboxChanged();
     } catch (err) {
@@ -118,6 +110,8 @@ export function Inbox() {
   }
 
   async function act(item: InboxItem, action: ReelAction) {
+    if (acted.current.has(item.id)) return;
+    acted.current.add(item.id);
     removeLocal([item.id]);
     try {
       await api(`/api/listings/${encodeURIComponent(item.id)}/actions`, {
@@ -131,12 +125,15 @@ export function Inbox() {
         action: { label: "Undo", onClick: () => void undo(item) },
       });
     } catch (err) {
+      acted.current.delete(item.id);
       toast.error(errorText(err));
       load(); // put the listing back as the server sees it
     }
   }
 
-  async function batch(ids: string[], type: BatchType) {
+  /** Resolves true on success; on failure the grid keeps its selection so the owner can retry. */
+  async function batch(ids: string[], type: BatchType): Promise<boolean> {
+    loadSeq.current++;
     try {
       const { changed } = await api<{ changed: number }>("/api/listings/batch", {
         method: "POST",
@@ -149,8 +146,10 @@ export function Inbox() {
       removeLocal(ids);
       notifyInboxChanged();
       await load();
+      return true;
     } catch (err) {
       toast.error(errorText(err));
+      return false;
     }
   }
 
