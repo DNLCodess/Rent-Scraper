@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { errorResponse } from "@/lib/api/respond";
 import { reopenHunt } from "@/lib/listings";
 import { getPreferences, updatePreferences } from "@/lib/preferences";
@@ -5,6 +6,7 @@ import { InputError } from "@/lib/runs";
 
 /** GET /api/preferences: the saved hunt preferences. */
 export async function GET() {
+  await connection(); // request time only: never run during the build
   try {
     return Response.json(await getPreferences());
   } catch (err) {

@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { errorResponse } from "@/lib/api/respond";
 import { InputError } from "@/lib/runs";
 import { getSettingsView, setSetting } from "@/lib/settings";
@@ -5,6 +6,7 @@ import { MAX_COUNT } from "@/lib/types";
 
 /** GET /api/settings: masked settings (the token itself is never returned). */
 export async function GET() {
+  await connection(); // request time only: never run during the build
   try {
     return Response.json(await getSettingsView());
   } catch (err) {

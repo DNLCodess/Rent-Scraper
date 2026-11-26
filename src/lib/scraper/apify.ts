@@ -59,28 +59,41 @@ export function toRawVideo(it: ApifyItem): RawVideo | null {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Per-request limit: a hung Apify request is abandoned (and retried) instead of blocking the caller. */
+export const REQUEST_TIMEOUT_MS = 15_000;
+
 export class ApifyScraper implements Scraper {
-  constructor(private token: string) {}
+  constructor(
+    private token: string,
+    private opts: { timeoutMs?: number; retryBaseMs?: number } = {},
+  ) {}
 
   /** fetch with retries + exponential backoff on network errors, 429 and 5xx. */
   private async call<T>(path: string, init: RequestInit = {}, attempts = 3): Promise<T> {
     let lastError: unknown;
     for (let i = 0; i < attempts; i++) {
-      if (i > 0) await sleep(1000 * 2 ** (i - 1) + Math.random() * 500);
+      const base = this.opts.retryBaseMs ?? 1000;
+      if (i > 0) await sleep(base * 2 ** (i - 1) + Math.random() * (base / 2));
       let res: Response;
       try {
         res = await fetch(`${API}${path}`, {
           ...init,
           headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json", ...init.headers },
           cache: "no-store",
+          signal: AbortSignal.timeout(this.opts.timeoutMs ?? REQUEST_TIMEOUT_MS),
         });
       } catch (e) {
         lastError = e;
         continue;
       }
-      if (res.ok) return (await res.json()) as T;
-
-      const body = await res.text();
+      let body: string;
+      try {
+        if (res.ok) return (await res.json()) as T;
+        body = await res.text();
+      } catch (e) {
+        lastError = e; // body read timed out or was cut off
+        continue;
+      }
       if (res.status === 401) {
         throw new ScraperError("TOKEN_INVALID", "Your Apify API token is invalid or expired. Update it in Settings.");
       }

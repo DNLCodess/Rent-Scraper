@@ -1,8 +1,10 @@
+import { connection } from "next/server";
 import { errorResponse } from "@/lib/api/respond";
 import { advanceStaleRuns, createRun, listRuns } from "@/lib/runs";
 
 /** GET /api/runs: run history, newest first. */
 export async function GET() {
+  await connection(); // request time only: never run during the build
   try {
     await advanceStaleRuns(); // catch-up for runs whose webhook never arrived
     return Response.json({ runs: await listRuns() });

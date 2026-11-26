@@ -1,9 +1,11 @@
+import { connection } from "next/server";
 import { errorResponse } from "@/lib/api/respond";
 import { blockAuthor, listBlocked, unblockAuthor } from "@/lib/preferences";
 import { InputError } from "@/lib/runs";
 
 /** GET /api/preferences/blocked: blocked agents with how many posts each hides. */
 export async function GET() {
+  await connection(); // request time only: never run during the build
   try {
     return Response.json(await listBlocked());
   } catch (err) {

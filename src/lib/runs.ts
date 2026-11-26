@@ -147,13 +147,24 @@ export async function advanceRunningRuns(opts: { olderThanMs?: number; limit?: n
   return advanced;
 }
 
-/** Bounded catch-up for list endpoints: a few runs started more than two minutes ago. */
-export async function advanceStaleRuns(): Promise<void> {
-  try {
-    await advanceRunningRuns({ olderThanMs: 2 * 60_000, limit: 3 });
-  } catch (err) {
+/** How long a list request may spend catching up runs before it answers anyway. */
+export const STALE_CATCHUP_BUDGET_MS = 4_000;
+
+/**
+ * Bounded catch-up for list endpoints: a few runs started more than two minutes ago.
+ * Never makes the list wait longer than the budget; unfinished work is simply picked
+ * up by the next list request, the cron or the webhook (advancing is idempotent).
+ */
+export async function advanceStaleRuns(opts: { budgetMs?: number } = {}): Promise<void> {
+  const work = advanceRunningRuns({ olderThanMs: 2 * 60_000, limit: 3 }).catch((err) => {
     console.error("Advancing stale runs failed", err);
-  }
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, opts.budgetMs ?? STALE_CATCHUP_BUDGET_MS);
+  });
+  await Promise.race([work, budget]);
+  clearTimeout(timer);
 }
 
 /** Upsert scraped videos and link them to the run. Re-parses every time so parser fixes apply. */

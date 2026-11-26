@@ -9,6 +9,12 @@ vi.mock("./settings", async (orig) => ({
   getScraper: async () => scraperRef.current!,
 }));
 
+// Route handlers call connection(), which only works inside a real request.
+vi.mock("next/server", async (orig) => ({
+  ...(await orig<typeof import("next/server")>()),
+  connection: async () => {},
+}));
+
 const { advanceRun, createRun } = await import("./runs");
 
 beforeEach(async () => {
@@ -78,5 +84,21 @@ describe("GET /api/runs catch-up", () => {
     const byId = new Map(body.runs.map((r: { id: string; status: string }) => [r.id, r.status]));
     expect(byId.get(stale.id)).toBe("done");
     expect(byId.get(fresh.id)).toBe("running");
+  });
+});
+
+describe("advanceStaleRuns time budget", () => {
+  it("returns within its budget when the scraper hangs", async () => {
+    const { advanceStaleRuns } = await import("./runs");
+    const run = await createRun(["a"], 3);
+    await (await db()).execute({
+      sql: "UPDATE runs SET created_at = ? WHERE id = ?",
+      args: [new Date(Date.now() - 10 * 60_000).toISOString(), run.id],
+    });
+    const mock = new MockScraper();
+    scraperRef.current = { ...mock, start: mock.start.bind(mock), items: mock.items.bind(mock), status: () => new Promise(() => {}) };
+    const t0 = Date.now();
+    await advanceStaleRuns({ budgetMs: 50 });
+    expect(Date.now() - t0).toBeLessThan(500);
   });
 });

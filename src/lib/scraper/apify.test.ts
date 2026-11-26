@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { toRawVideo, webhooksParam } from "./apify";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApifyScraper, toRawVideo, webhooksParam } from "./apify";
+import { ScraperError } from "./types";
 
 afterEach(() => {
   delete process.env.APP_URL;
@@ -33,5 +34,24 @@ describe("toRawVideo", () => {
   it("skips error items and items without an author", () => {
     expect(toRawVideo({ ...base, errorCode: "x" })).toBeNull();
     expect(toRawVideo({ id: 2 })).toBeNull();
+  });
+});
+
+describe("ApifyScraper request time limit", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("gives up on a hung request instead of waiting forever", async () => {
+    // A fetch that never answers unless its signal aborts.
+    vi.stubGlobal("fetch", (_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      }),
+    );
+    const scraper = new ApifyScraper("token", { timeoutMs: 20, retryBaseMs: 1 });
+    const t0 = Date.now();
+    const err = await scraper.status({ jobId: "run1", datasetId: "ds1" }).catch((e) => e);
+    expect(err).toBeInstanceOf(ScraperError);
+    expect((err as ScraperError).code).toBe("PROVIDER");
+    expect(Date.now() - t0).toBeLessThan(1000);
   });
 });
