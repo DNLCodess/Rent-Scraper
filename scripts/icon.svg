@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Rental Hunt app icon: Lagoon & Brass. Full-bleed so it also works as a maskable icon;
+       the house stays inside the central safe circle (radius ~205). -->
+  <rect width="512" height="512" fill="#0F4F55"/>
+  <path d="M256 132 L380 236 L352 236 L352 380 L160 380 L160 236 L132 236 Z"
+        fill="#F2F5F4" stroke="#F2F5F4" stroke-width="16" stroke-linejoin="round"/>
+  <rect x="186" y="262" width="44" height="44" rx="7" fill="#EBCF96"/>
+  <rect x="282" y="262" width="44" height="44" rx="7" fill="#EBCF96"/>
+  <rect x="234" y="318" width="44" height="66" rx="7" fill="#0F4F55"/>
+</svg>

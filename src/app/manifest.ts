@@ -10,6 +10,12 @@ export default function manifest(): MetadataRoute.Manifest {
     display: "standalone",
     background_color: "#F2F5F4",
     theme_color: "#0F4F55",
-    icons: [{ src: "/favicon.ico", sizes: "any", type: "image/x-icon" }],
+    // Rendered from scripts/icon.svg by scripts/make-icons.mjs. The art sits inside the
+    // maskable safe zone, so the same 512px file serves both purposes.
+    icons: [
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+    ],
   };
 }

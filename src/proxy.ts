@@ -32,5 +32,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest).*)"],
+  // Static assets, the manifest and the home-screen icons load without auth:
+  // browsers fetch them without the user's credentials.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|icon-\\d+\\.png|apple-icon).*)"],
 };
