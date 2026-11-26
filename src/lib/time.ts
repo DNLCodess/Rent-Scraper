@@ -45,6 +45,25 @@ export function startOfLagosDay(d: Date): Date {
   return new Date(localMidnightAsUtc - offset);
 }
 
+/** Africa/Lagos is WAT all year (no DST), so its offset is fixed. */
+const LAGOS_OFFSET = "+01:00";
+
+/**
+ * Lagos wall time from date and time inputs ("2026-11-29", "10:00") as an ISO string with an explicit
+ * offset ("2026-11-29T10:00:00+01:00"). Null when either part is missing or not a real date/time.
+ */
+export function lagosLocalToIso(date: string, time: string): string | null {
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
+  const tm = /^(\d{2}):(\d{2})$/.exec(time.trim());
+  if (!dm || !tm) return null;
+  const [y, mo, d] = [Number(dm[1]), Number(dm[2]), Number(dm[3])];
+  const [h, mi] = [Number(tm[1]), Number(tm[2])];
+  if (h > 23 || mi > 59) return null;
+  const check = new Date(Date.UTC(y, mo - 1, d));
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d) return null;
+  return `${dm[0]}T${tm[0]}:00${LAGOS_OFFSET}`;
+}
+
 export function formatLagos(d: Date, style: Style): string {
   return new Intl.DateTimeFormat("en-GB", { timeZone: LAGOS_TZ, ...FORMATS[style] }).format(d);
 }

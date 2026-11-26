@@ -38,7 +38,7 @@ describe("applyAction", () => {
     expect((await applyAction("a", { type: "messaged" })).status).toBe("messaged");
     const booked = await applyAction("a", { type: "book_inspection", at: "2026-11-28T10:00:00+01:00" });
     expect(booked.status).toBe("inspection_booked");
-    expect(booked.inspection_at).toBe("2026-11-28T10:00:00+01:00");
+    expect(booked.inspection_at).toBe("2026-11-28T09:00:00.000Z");
     const insp = await applyAction("a", {
       type: "log_inspection",
       powerConfirmed: "24h",
@@ -55,6 +55,23 @@ describe("applyAction", () => {
     const got = await applyAction("a", { type: "got_it" });
     expect(got.status).toBe("got_it");
     expect((await getPreferences()).huntState).toBe("done");
+  });
+
+  it("stores inspection times as UTC", async () => {
+    await insert("a", { status: "messaged" });
+    const booked = await applyAction("a", { type: "book_inspection", at: "2026-11-29T10:00:00+01:00" });
+    expect(booked.inspection_at).toBe("2026-11-29T09:00:00.000Z");
+    const moved = await applyAction("a", { type: "book_inspection", at: "2026-11-30T23:30:00Z" });
+    expect(moved.inspection_at).toBe("2026-11-30T23:30:00.000Z");
+  });
+
+  it("rejects an inspection time without a time zone", async () => {
+    await insert("a", { status: "messaged" });
+    await expect(applyAction("a", { type: "book_inspection", at: "2026-11-29T10:00:00" })).rejects.toThrow(
+      "Inspection time needs a time zone.",
+    );
+    await expect(applyAction("a", { type: "book_inspection", at: "2026-11-29" })).rejects.toThrow(InputError);
+    expect((await getListing("a"))!.status).toBe("messaged");
   });
 
   it("rejects skipping stages", async () => {

@@ -139,11 +139,16 @@ export async function applyAction(id: string, action: ListingAction, now: Date =
       if (typeof action.at !== "string" || Number.isNaN(Date.parse(action.at))) {
         throw new InputError("Enter a valid inspection date and time.");
       }
+      // An offsetless time would be read in the server's own zone, so require one and store UTC.
+      if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(action.at.trim())) {
+        throw new InputError("Inspection time needs a time zone.");
+      }
+      const at = new Date(action.at).toISOString();
       if (status === "inspection_booked") {
-        await c.execute({ sql: "UPDATE listings SET inspection_at = ?, updated_at = ? WHERE id = ?", args: [action.at, ts, id] });
+        await c.execute({ sql: "UPDATE listings SET inspection_at = ?, updated_at = ? WHERE id = ?", args: [at, ts, id] });
       } else {
         if (status !== "messaged") throw new InputError("Message the agent before booking an inspection.");
-        await move("inspection_booked", { inspection_at: action.at });
+        await move("inspection_booked", { inspection_at: at });
       }
       break;
     }
