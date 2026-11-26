@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LayoutGrid, RectangleVertical } from "lucide-react";
 import { toast } from "sonner";
@@ -184,7 +185,7 @@ export function Inbox() {
   if (!data) return <InboxSkeleton />;
 
   const items = data.items;
-  if (huntDone || items.length === 0) {
+  if (items.length === 0) {
     return (
       <>
         <ScreenHeader title="Inbox" />
@@ -193,7 +194,7 @@ export function Inbox() {
     );
   }
 
-  const header = (
+  const screenHeader = (
     <ScreenHeader
       title="Inbox"
       subtitle={
@@ -203,6 +204,14 @@ export function Inbox() {
       }
       right={toggle}
     />
+  );
+  const header = huntDone ? (
+    <>
+      {screenHeader}
+      <HuntFinishedBanner />
+    </>
+  ) : (
+    screenHeader
   );
 
   return (
@@ -225,6 +234,22 @@ export function Inbox() {
         }}
       />
     </>
+  );
+}
+
+/** Hunt is done (spec: the Inbox still shows what it has): a calm note with the way back. */
+function HuntFinishedBanner() {
+  return (
+    <p
+      role="status"
+      className="mx-6 mb-4 rounded-2xl border border-line bg-surface px-4 py-3 text-[13px] leading-[1.5] font-medium text-text-2"
+    >
+      <span className="font-bold text-text">Hunt finished.</span> Daily searches are paused.{" "}
+      <Link href="/criteria" className="font-bold text-primary underline-offset-2 hover:underline">
+        Reopen it from My criteria
+      </Link>{" "}
+      to resume them.
+    </p>
   );
 }
 
