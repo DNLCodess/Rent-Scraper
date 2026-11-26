@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, useTestDb } from "./db";
 import { addNote, applyAction, batchAction, dismissWhere, getListing, reopenHunt } from "./listings";
 import { getPreferences } from "./preferences";
@@ -109,6 +109,47 @@ describe("applyAction", () => {
     await applyAction("a", { type: "messaged" });
     expect((await applyAction("a", { type: "undo" })).status).toBe("shortlisted");
     await expect(applyAction("a", { type: "undo" })).rejects.toBeInstanceOf(InputError);
+  });
+
+  it("undo out of dropped clears drop_reason", async () => {
+    await insert("a", { status: "shortlisted" });
+    await applyAction("a", { type: "drop", reason: "bad_area" });
+    const u = await applyAction("a", { type: "undo" });
+    expect(u.status).toBe("shortlisted");
+    expect(u.drop_reason).toBeNull();
+  });
+
+  it("undo of a first booking clears inspection_at", async () => {
+    await insert("a", { status: "messaged" });
+    await applyAction("a", { type: "book_inspection", at: "2026-11-28T10:00:00+01:00" });
+    const u = await applyAction("a", { type: "undo" });
+    expect(u.status).toBe("messaged");
+    expect(u.inspection_at).toBeNull();
+  });
+
+  it("negotiate moves an inspected listing to negotiating, and only that", async () => {
+    await insert("a", { status: "inspected" });
+    const n = await applyAction("a", { type: "negotiate" });
+    expect(n.status).toBe("negotiating");
+    expect((await applyAction("a", { type: "undo" })).status).toBe("inspected");
+    await insert("b", { status: "messaged" });
+    await expect(applyAction("b", { type: "negotiate" })).rejects.toBeInstanceOf(InputError);
+  });
+
+  it("got_it writes the status move and the archive in one batch", async () => {
+    await insert("win", { status: "negotiating" });
+    await insert("s", { status: "shortlisted" });
+    const c = await db();
+    const spy = vi.spyOn(c, "batch");
+    await applyAction("win", { type: "got_it" });
+    const listingBatches = spy.mock.calls.filter(([stmts]) =>
+      (stmts as { sql: string }[]).some((x) => /archived = 1/.test(String(x.sql ?? x))),
+    );
+    spy.mockRestore();
+    expect(listingBatches).toHaveLength(1);
+    expect(listingBatches[0][0]).toHaveLength(2);
+    expect(listingBatches[0][1]).toBe("write");
+    expect(await statusOf("win")).toBe("got_it");
   });
 
   it("replied stops nudge eligibility", async () => {

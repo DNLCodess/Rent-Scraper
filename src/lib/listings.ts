@@ -104,15 +104,18 @@ export async function applyAction(id: string, action: ListingAction, now: Date =
   const prevStatus = (res.rows[0].prev_status as ListingStatus | null) ?? null;
   const ts = now.toISOString();
 
-  const move = async (to: ListingStatus, extra: Record<string, unknown> = {}) => {
+  const moveStmt = (to: ListingStatus, extra: Record<string, unknown> = {}) => {
     if (!ALLOWED[status].includes(to)) {
       throw new InputError(`This listing is ${status.replace(/_/g, " ")}, so it can't move to ${to.replace(/_/g, " ")}.`);
     }
     const cols = ["status", "prev_status", "status_changed_at", ...Object.keys(extra)];
-    await c.execute({
+    return {
       sql: `UPDATE listings SET ${cols.map((k) => `${k} = ?`).join(", ")}, updated_at = ? WHERE id = ?`,
       args: [to, status, ts, ...Object.values(extra), ts, id] as never[],
-    });
+    };
+  };
+  const move = async (to: ListingStatus, extra: Record<string, unknown> = {}) => {
+    await c.execute(moveStmt(to, extra));
   };
   const addNoteRow = async (body: string) => {
     await c.execute({
@@ -175,25 +178,40 @@ export async function applyAction(id: string, action: ListingAction, now: Date =
         args: [checkMoney(action.offer, "Offer"), checkMoney(action.counter, "Counter"), ts, id],
       });
       break;
+    case "negotiate":
+      await move("negotiating");
+      break;
     case "drop":
       await move("dropped", { drop_reason: checkReason(action.reason) });
       break;
     case "got_it": {
       if (status !== "negotiating") throw new InputError("Only a listing you're negotiating can be marked as got it.");
-      await move("got_it");
       const ph = TRACKER.map(() => "?").join(",");
-      await c.execute({
-        sql: `UPDATE listings SET archived = 1 WHERE id != ? AND archived = 0 AND status IN (${ph})`,
-        args: [id, ...TRACKER],
-      });
+      // One write batch, so the hunt is never left with the winner moved but the rest unarchived.
+      await c.batch(
+        [
+          moveStmt("got_it"),
+          {
+            sql: `UPDATE listings SET archived = 1 WHERE id != ? AND archived = 0 AND status IN (${ph})`,
+            args: [id, ...TRACKER],
+          },
+        ],
+        "write",
+      );
       await updatePreferences({ huntState: "done" });
       break;
     }
     case "undo": {
       if (!prevStatus) throw new InputError("There is nothing to undo on this listing.");
+      // Leaving `dropped` forgets why; undoing a first booking forgets its time.
+      const clearReason = status === "dropped";
+      const clearInspection = status === "inspection_booked" && prevStatus === "messaged";
       await c.execute({
-        sql: "UPDATE listings SET status = ?, prev_status = NULL, status_changed_at = ?, updated_at = ? WHERE id = ?",
-        args: [prevStatus, ts, ts, id],
+        sql: `UPDATE listings SET status = ?, prev_status = NULL, status_changed_at = ?, updated_at = ?,
+                drop_reason = CASE WHEN ? THEN NULL ELSE drop_reason END,
+                inspection_at = CASE WHEN ? THEN NULL ELSE inspection_at END
+              WHERE id = ?`,
+        args: [prevStatus, ts, ts, clearReason ? 1 : 0, clearInspection ? 1 : 0, id],
       });
       if (status === "got_it") await reopenHunt();
       break;

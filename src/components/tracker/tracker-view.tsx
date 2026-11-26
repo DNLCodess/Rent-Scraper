@@ -170,6 +170,9 @@ export function TrackerView() {
         case "log_inspection":
           toast(action.next === "negotiating" ? "Moved to Negotiating" : "Dropped", { description: title });
           break;
+        case "negotiate":
+          toast("Moved to Negotiating", withUndo);
+          break;
         case "offer":
           toast("Offer saved", { description: title });
           break;
@@ -340,6 +343,7 @@ export function TrackerView() {
         onMessage={(l) => messageFromShortlist(l)}
         onMarkMessaged={(l) => void run(l, { type: "messaged" })}
         onReplied={(l) => void run(l, { type: "replied" })}
+        onNegotiate={(l) => void run(l, { type: "negotiate" })}
       />
       <BookInspectionSheet
         listing={sheet?.kind === "book" ? sheet.listing : null}
@@ -575,6 +579,7 @@ function RowActionsSheet({
   onMessage,
   onMarkMessaged,
   onReplied,
+  onNegotiate,
 }: {
   listing: ListingDetail | null;
   onClose: () => void;
@@ -582,6 +587,7 @@ function RowActionsSheet({
   onMessage: (l: ListingDetail) => void;
   onMarkMessaged: (l: ListingDetail) => void;
   onReplied: (l: ListingDetail) => void;
+  onNegotiate: (l: ListingDetail) => void;
 }) {
   return (
     <TrackerSheet
@@ -634,6 +640,12 @@ function RowActionsSheet({
                   Change inspection time
                 </Button>
               </>
+            )}
+            {l.status === "inspected" && (
+              <Button className={item} onClick={() => onNegotiate(l)}>
+                <HandCoins aria-hidden />
+                Negotiate
+              </Button>
             )}
             {l.status === "negotiating" && (
               <>

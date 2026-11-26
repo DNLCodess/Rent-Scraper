@@ -130,6 +130,7 @@ export type ListingAction =
       next: "negotiating" | "dropped";
       dropReason?: DropReason;
     }
+  | { type: "negotiate" }
   | { type: "offer"; offer: number | null; counter: number | null }
   | { type: "drop"; reason: DropReason }
   | { type: "got_it" }
