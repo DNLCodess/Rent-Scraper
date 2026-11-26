@@ -8,9 +8,9 @@ import { ScraperError, termLabel, toSearchTerm, type RawVideo, type SearchTerm }
 import { MAX_COUNT, MAX_TAGS, type Listing, type ListingFilters, type Run } from "./types";
 
 /**
- * Run lifecycle. There is no background worker: each status poll
- * (GET /api/runs/:id) advances the run by checking its scraper jobs and
- * ingesting finished ones. This works on serverless hosts like Vercel.
+ * Run lifecycle. There is no background worker: the Apify webhook, each status poll
+ * (GET /api/runs/:id), the daily cron and the run / search list endpoints advance runs
+ * by checking their scraper jobs and ingesting finished ones. This works on serverless hosts.
  */
 
 interface Job {
@@ -85,21 +85,75 @@ export async function createRun(
     args: [id, JSON.stringify(unique.map(termLabel)), count, now(), source],
   });
 
+  let scraper: Awaited<ReturnType<typeof getScraper>>;
   try {
-    const scraper = await getScraper();
-    const jobs: Job[] = [];
-    for (const term of unique) {
-      const started = await scraper.start(term, count);
-      jobs.push({ term, ...started, status: "running", itemCount: 0, ingested: false });
-    }
-    await c.execute({
-      sql: "UPDATE runs SET status = 'running', jobs = ? WHERE id = ?",
-      args: [JSON.stringify(jobs), id],
-    });
+    scraper = await getScraper();
   } catch (err) {
     await failRun(id, err);
+    return (await getRun(id))!;
+  }
+  // Save jobs after each start, so a later start failure never orphans a paid Apify run.
+  const jobs: Job[] = [];
+  let firstError: ScraperError | null = null;
+  for (const term of unique) {
+    try {
+      const started = await scraper.start(term, count);
+      jobs.push({ term, ...started, status: "running", itemCount: 0, ingested: false });
+      await c.execute({
+        sql: "UPDATE runs SET status = 'running', jobs = ? WHERE id = ?",
+        args: [JSON.stringify(jobs), id],
+      });
+    } catch (err) {
+      const e = err instanceof ScraperError ? err : new ScraperError("PROVIDER", String(err));
+      firstError ??= e;
+      // Recorded as a failed job so the finished run notes it; token / quota errors stop the rest.
+      jobs.push({ term, jobId: "", datasetId: "", status: "failed", itemCount: 0, ingested: false, error: e.message });
+      if (e.code !== "PROVIDER") break;
+    }
+  }
+  if (firstError) {
+    if (!jobs.some((j) => j.status === "running")) {
+      await failRun(id, firstError);
+    } else {
+      const error = jobs.filter((j) => j.status === "failed").map((j) => `${termLabel(j.term)}: ${j.error}`).join("; ");
+      await c.execute({
+        sql: "UPDATE runs SET jobs = ?, error = ?, error_code = ? WHERE id = ?",
+        args: [JSON.stringify(jobs), error, firstError.code, id],
+      });
+    }
   }
   return (await getRun(id))!;
+}
+
+/**
+ * Advance runs still `running`, oldest first. The cron calls this for all of them; list
+ * endpoints call it for a few stale ones, so a missed webhook never leaves a run stuck.
+ */
+export async function advanceRunningRuns(opts: { olderThanMs?: number; limit?: number } = {}): Promise<string[]> {
+  const cutoff = new Date(Date.now() - (opts.olderThanMs ?? 0)).toISOString();
+  const r = await (await db()).execute({
+    sql: "SELECT id FROM runs WHERE status = 'running' AND created_at <= ? ORDER BY created_at ASC LIMIT ?",
+    args: [cutoff, opts.limit ?? 1000],
+  });
+  const advanced: string[] = [];
+  for (const row of r.rows) {
+    try {
+      await advanceRun(row.id as string);
+      advanced.push(row.id as string);
+    } catch (err) {
+      console.error("Advancing run failed", row.id, err); // one bad run must not block the rest
+    }
+  }
+  return advanced;
+}
+
+/** Bounded catch-up for list endpoints: a few runs started more than two minutes ago. */
+export async function advanceStaleRuns(): Promise<void> {
+  try {
+    await advanceRunningRuns({ olderThanMs: 2 * 60_000, limit: 3 });
+  } catch (err) {
+    console.error("Advancing stale runs failed", err);
+  }
 }
 
 /** Upsert scraped videos and link them to the run. Re-parses every time so parser fixes apply. */

@@ -50,15 +50,15 @@ All mutating `/api` calls (POST/PUT/PATCH/DELETE) must be same-origin and send J
 
 ## Daily run and webhook
 
-- **Cron:** `vercel.json` schedules `0 6 * * *` UTC, which is 07:00 in Lagos. It calls `/api/cron/daily`, which starts a run for each search marked daily. Vercel sends `Authorization: Bearer ${CRON_SECRET}` automatically when `CRON_SECRET` is set; requests without it are rejected.
-- **Webhook:** each Apify run is started with a webhook to `${APP_URL}/api/webhooks/apify?secret=${APIFY_WEBHOOK_SECRET}`. When the run finishes, Apify calls it and the app ingests the results.
-- **Polling fallback:** the app also polls `/api/runs/:id` for in-progress runs, so a missed webhook (or no `APP_URL`) still results in ingestion.
+- **Cron:** `vercel.json` schedules `0 6 * * *` UTC, which is 07:00 in Lagos. It calls `/api/cron/daily`, which first advances (and ingests) every run still in progress, then starts a run for each search marked daily. A search that already had a scheduled run that Lagos day is skipped, so a repeated cron delivery does not spend credit twice. Vercel sends `Authorization: Bearer ${CRON_SECRET}` automatically when `CRON_SECRET` is set; requests without it are rejected.
+- **Webhook:** each Apify run is started with a webhook to `${APP_URL}/api/webhooks/apify?secret=${APIFY_WEBHOOK_SECRET}`. When the run finishes, Apify calls it and the app ingests the results. If ingest fails the webhook answers 500, so Apify retries the delivery (a limited number of times; ingest is idempotent).
+- **Fallbacks:** without the webhook, a run is advanced when its run page is open (it polls `/api/runs/:id`), when the run or search lists load (`GET /api/runs`, `GET /api/searches` advance up to 3 runs started over 2 minutes ago), and by the next daily cron. So a missed webhook (or no `APP_URL`) delays ingestion until one of those happens; it is not lost.
 - There is no background worker, so everything works on serverless hosting.
 
 ## Layout
 
 - `src/lib/parser.ts`: regex and keyword extraction of price, area, bedrooms, phone.
 - `src/lib/scraper/`: `Scraper` interface with `apify.ts` and `mock.ts` providers.
-- `src/lib/ingest.ts`: deduplicates by TikTok video ID and stores listings.
+- `src/lib/runs.ts`: run lifecycle and ingest (deduplicates by TikTok video ID and stores listings).
 - `src/proxy.ts`: CSRF guard and optional Basic auth.
 - Storage: libSQL (local SQLite file, or Turso in production).

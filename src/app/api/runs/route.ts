@@ -1,9 +1,10 @@
 import { errorResponse } from "@/lib/api/respond";
-import { createRun, listRuns } from "@/lib/runs";
+import { advanceStaleRuns, createRun, listRuns } from "@/lib/runs";
 
 /** GET /api/runs: run history, newest first. */
 export async function GET() {
   try {
+    await advanceStaleRuns(); // catch-up for runs whose webhook never arrived
     return Response.json({ runs: await listRuns() });
   } catch (err) {
     return errorResponse(err);

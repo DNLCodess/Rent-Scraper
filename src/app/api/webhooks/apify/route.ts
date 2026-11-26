@@ -4,7 +4,8 @@ import { safeEqual } from "@/lib/secret";
 /**
  * POST /api/webhooks/apify?secret=...: Apify run-finished webhook (default payload,
  * `resource` is the run object). Ingest is idempotent, so duplicates and late
- * deliveries are harmless. Always 200 on a known secret so Apify does not retry forever.
+ * deliveries are harmless. 200 when handled (or the run id is unknown); 500 on an unexpected
+ * error so Apify retries the delivery (it retries a limited number of times).
  */
 export async function POST(request: Request) {
   const secret = process.env.APIFY_WEBHOOK_SECRET;
@@ -18,6 +19,7 @@ export async function POST(request: Request) {
     if (typeof id === "string" && id) await advanceRunByJobId(id);
   } catch (err) {
     console.error("Apify webhook failed", err);
+    return Response.json({ error: "Ingest failed. Apify will retry." }, { status: 500 });
   }
   return Response.json({ ok: true });
 }

@@ -3,9 +3,10 @@ import { randomUUID } from "node:crypto";
 import type { Row } from "@libsql/client";
 import { db } from "./db";
 import { getPreferences } from "./preferences";
-import { createRun, InputError } from "./runs";
+import { advanceRunningRuns, createRun, InputError } from "./runs";
 import { toSearchTerm, termLabel } from "./scraper/types";
 import { getSetting, setSetting } from "./settings";
+import { lagosDayKey } from "./time";
 import { MAX_COUNT, MAX_TAGS, type Run } from "./types";
 
 export interface SavedSearch {
@@ -121,16 +122,33 @@ export async function runSavedSearch(id: string, source: "manual" | "scheduled" 
   return createRun(s.terms, s.count, source);
 }
 
-/** Start every daily search. Does nothing once the hunt is done. */
-export async function runDailySearches(): Promise<{ started: string[] }> {
-  if ((await getPreferences()).huntState === "done") return { started: [] };
+/** Whether a scheduled run of these terms was created on the current Lagos day. */
+async function ranToday(terms: string[], now: Date): Promise<boolean> {
+  const since = new Date(now.getTime() - 2 * 86_400_000).toISOString();
+  const r = await (await db()).execute({
+    sql: "SELECT created_at FROM runs WHERE source = 'scheduled' AND tags = ? AND created_at >= ?",
+    args: [JSON.stringify(terms), since],
+  });
+  const today = lagosDayKey(now);
+  return r.rows.some((row) => lagosDayKey(new Date(row.created_at as string)) === today);
+}
+
+/**
+ * Daily cron: first advance every run still `running` (so a missed webhook never strands
+ * results), then start each daily search once per Lagos day. Starts nothing once the hunt is done.
+ */
+export async function runDailySearches(): Promise<{ started: string[]; advanced: string[] }> {
+  const advanced = await advanceRunningRuns();
+  if ((await getPreferences()).huntState === "done") return { started: [], advanced };
   const started: string[] = [];
+  const now = new Date();
   for (const s of (await listSearches()).filter((x) => x.daily)) {
     try {
+      if (await ranToday(s.terms, now)) continue; // duplicate cron delivery: don't pay twice
       started.push((await runSavedSearch(s.id, "scheduled")).id);
     } catch (err) {
       console.error("Scheduled search failed", s.id, err); // one bad search must not block the rest
     }
   }
-  return { started };
+  return { started, advanced };
 }

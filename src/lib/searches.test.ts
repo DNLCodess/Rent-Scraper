@@ -54,8 +54,47 @@ describe("runs from searches", () => {
   it("does nothing when the hunt is done", async () => {
     await createSearch({ terms: ["a"], count: 3, daily: true });
     await updatePreferences({ huntState: "done" });
-    expect(await runDailySearches()).toEqual({ started: [] });
+    expect(await runDailySearches()).toEqual({ started: [], advanced: [] });
     expect(await count("SELECT COUNT(*) AS n FROM runs")).toBe(0);
+  });
+  it("first advances runs still running, oldest first", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-25T10:00:00Z"));
+    const manual = await createSearch({ terms: ["x"], count: 3, daily: false });
+    const stuck = await runSavedSearch(manual.id);
+    expect(stuck.status).toBe("running");
+    await createSearch({ terms: ["a"], count: 3, daily: true });
+    vi.setSystemTime(new Date("2026-11-26T06:00:00Z"));
+    const res = await runDailySearches();
+    expect(res.advanced).toEqual([stuck.id]);
+    expect(res.started).toHaveLength(1);
+    const row = (await (await db()).execute({ sql: "SELECT status FROM runs WHERE id = ?", args: [stuck.id] })).rows[0];
+    expect(row.status).toBe("done");
+  });
+  it("advances running runs even when the hunt is done", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-25T10:00:00Z"));
+    const manual = await createSearch({ terms: ["x"], count: 3, daily: false });
+    const stuck = await runSavedSearch(manual.id);
+    await updatePreferences({ huntState: "done" });
+    vi.setSystemTime(new Date("2026-11-26T06:00:00Z"));
+    expect(await runDailySearches()).toEqual({ started: [], advanced: [stuck.id] });
+  });
+  it("skips a daily search that already ran today (Lagos), e.g. a duplicate cron delivery", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-25T06:00:00Z")); // 07:00 Lagos
+    await createSearch({ terms: ["a"], count: 3, daily: true });
+    expect((await runDailySearches()).started).toHaveLength(1);
+    vi.setSystemTime(new Date("2026-11-25T22:30:00Z")); // 23:30 Lagos, same day
+    expect((await runDailySearches()).started).toHaveLength(0);
+    vi.setSystemTime(new Date("2026-11-25T23:30:00Z")); // 00:30 Lagos, next day
+    expect((await runDailySearches()).started).toHaveLength(1);
+    expect(await count("SELECT COUNT(*) AS n FROM runs WHERE source = 'scheduled'")).toBe(2);
+  });
+  it("a manual run of the same search today does not block the daily run", async () => {
+    const s = await createSearch({ terms: ["a"], count: 3, daily: true });
+    await runSavedSearch(s.id);
+    expect((await runDailySearches()).started).toHaveLength(1);
   });
   it("runSavedSearch starts a manual run", async () => {
     const s = await createSearch({ terms: ["a"], count: 3, daily: false });
@@ -143,5 +182,20 @@ describe("cron and webhook routes", () => {
     expect((await POST(new Request("http://x/api/webhooks/apify", { method: "POST", body }))).status).toBe(401);
     expect((await POST(new Request("http://x/api/webhooks/apify?secret=hook", { method: "POST", body }))).status).toBe(200);
     expect((await POST(new Request("http://x/api/webhooks/apify?secret=hook", { method: "POST", body: "garbage" }))).status).toBe(200);
+  });
+  it("webhook answers 500 when ingest fails, so Apify retries", async () => {
+    process.env.APIFY_WEBHOOK_SECRET = "hook";
+    const { POST } = await import("@/app/api/webhooks/apify/route");
+    const s = await createSearch({ terms: ["a"], count: 3, daily: false });
+    const run = await runSavedSearch(s.id);
+    const jobs = JSON.parse(
+      String((await (await db()).execute({ sql: "SELECT jobs FROM runs WHERE id = ?", args: [run.id] })).rows[0].jobs),
+    );
+    await (await db()).execute("DROP TABLE run_listings"); // makes the advance throw
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const body = JSON.stringify({ resource: { id: jobs[0].jobId } });
+    const res = await POST(new Request("http://x/api/webhooks/apify?secret=hook", { method: "POST", body }));
+    spy.mockRestore();
+    expect(res.status).toBe(500);
   });
 });
