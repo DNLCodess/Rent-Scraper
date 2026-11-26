@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { formatAge, formatHomeTitle, formatPeriod, formatPosted, powerLabel } from "./format";
+import {
+  formatAge,
+  formatBedCount,
+  formatHomeTitle,
+  formatPeriod,
+  formatPhone,
+  formatPosted,
+  formatRelative,
+  powerLabel,
+} from "./format";
 
 const now = new Date("2026-11-26T12:00:00Z");
 
@@ -48,5 +57,29 @@ describe("powerLabel", () => {
     expect(powerLabel("strong", null)).toBe("Constant power");
     expect(powerLabel("mentioned", "   ")).toBe("Power mentioned");
     expect(powerLabel("unknown", undefined)).toBe("");
+  });
+});
+
+describe("listing detail labels", () => {
+  it("counts beds", () => {
+    expect(formatBedCount(null)).toBeNull();
+    expect(formatBedCount(0)).toBe("Studio");
+    expect(formatBedCount(1)).toBe("1 bed");
+    expect(formatBedCount(2)).toBe("2 beds");
+  });
+
+  it("shows the first phone, spaced", () => {
+    expect(formatPhone("+2348031234567, +2347031234567")).toBe("+234 803 123 4567");
+    expect(formatPhone(" , +2349051234567")).toBe("+234 905 123 4567");
+    expect(formatPhone("12345")).toBe("12345");
+    expect(formatPhone(null)).toBeNull();
+    expect(formatPhone("")).toBeNull();
+  });
+
+  it("formats note times relative to now", () => {
+    expect(formatRelative("2026-11-26T11:59:40Z", now)).toBe("just now");
+    expect(formatRelative("2026-11-26T11:55:00Z", now)).toBe("5 min ago");
+    expect(formatRelative("2026-11-26T09:00:00Z", now)).toBe("3 h ago");
+    expect(formatRelative("2026-11-25T08:00:00Z", now)).toBe("yesterday");
   });
 });

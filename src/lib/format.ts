@@ -1,6 +1,6 @@
 /** Display helpers shared by UI components. */
 
-import type { Listing, RunStatus } from "./types";
+import type { Listing, ListingStatus, RunStatus } from "./types";
 
 /** ₦1.5m, ₦800k, ₦85,000 */
 export function formatNaira(n: number | null): string {
@@ -120,3 +120,42 @@ export function powerLabel(level: "strong" | "mentioned" | "unknown", raw: strin
   const capped = text.length > POWER_LABEL_MAX ? `${text.slice(0, POWER_LABEL_MAX - 1).trimEnd()}…` : text;
   return capped.charAt(0).toUpperCase() + capped.slice(1);
 }
+
+/** "Studio", "1 bed", "2 beds", or null when unknown (detail facts row). */
+export function formatBedCount(n: number | null): string | null {
+  if (n === null) return null;
+  if (n === 0) return "Studio";
+  return n === 1 ? "1 bed" : `${n} beds`;
+}
+
+/** First number of a comma-separated phone list, spaced for reading: "+234 803 123 4567". */
+export function formatPhone(phones: string | null): string | null {
+  const first = phones
+    ?.split(",")
+    .map((p) => p.trim())
+    .find(Boolean);
+  if (!first) return null;
+  const m = /^\+234(\d{3})(\d{3})(\d{4})$/.exec(first.replace(/\s+/g, ""));
+  return m ? `+234 ${m[1]} ${m[2]} ${m[3]}` : first;
+}
+
+/** "just now", "5 min ago", "3 h ago", then the day-level formatAge ("yesterday", "3 days ago"). */
+export function formatRelative(iso: string, now: Date = new Date()): string {
+  const mins = Math.floor((now.getTime() - new Date(iso).getTime()) / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  if (mins < 24 * 60) return `${Math.floor(mins / 60)} h ago`;
+  return formatAge(iso, now);
+}
+
+export const LISTING_STATUS_LABEL: Record<ListingStatus, string> = {
+  new: "New",
+  dismissed: "Dismissed",
+  shortlisted: "Shortlisted",
+  messaged: "Messaged",
+  inspection_booked: "Inspection booked",
+  inspected: "Inspected",
+  negotiating: "Negotiating",
+  got_it: "Got it",
+  dropped: "Dropped",
+};
