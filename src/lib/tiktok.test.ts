@@ -26,6 +26,14 @@ describe("fetchThumbnail", () => {
     const f = vi.fn(() => Promise.reject(new Error("net")));
     expect(await fetchThumbnail("u3", f as never)).toBeNull();
   });
+  it("passes a timeout signal; an aborted fetch is a null miss", async () => {
+    const f = vi.fn((_u: string, init?: RequestInit) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      return Promise.reject(new DOMException("The operation timed out.", "TimeoutError"));
+    });
+    expect(await fetchThumbnail("u-timeout", f as never)).toBeNull();
+    expect(f).toHaveBeenCalledTimes(1);
+  });
   it("caches hits: one fetch for two calls", async () => {
     const f = vi.fn(() => json({ thumbnail_url: "t" }));
     await fetchThumbnail("u4", f as never);

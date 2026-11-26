@@ -23,7 +23,10 @@ export async function fetchThumbnail(videoUrl: string, fetchImpl: typeof fetch =
 
   let value: string | null = null;
   try {
-    const res = await fetchImpl(`https://www.tiktok.com/oembed?url=${encodeURIComponent(videoUrl)}`);
+    // A slow oEmbed must not hold the request; the timeout lands in the catch as a miss.
+    const res = await fetchImpl(`https://www.tiktok.com/oembed?url=${encodeURIComponent(videoUrl)}`, {
+      signal: AbortSignal.timeout(3000),
+    });
     if (res.ok) {
       const body = await res.json();
       if (typeof body?.thumbnail_url === "string" && body.thumbnail_url) value = body.thumbnail_url;
