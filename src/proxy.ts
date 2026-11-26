@@ -1,9 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { checkAuth } from "@/lib/auth-gate";
 import { checkRequest } from "@/lib/request-guard";
 
 /**
- * Optional HTTP Basic auth for the whole app. Set APP_PASSWORD (any username works)
- * when deploying publicly, so strangers can't start runs on your Apify account.
+ * HTTP Basic auth for the whole app. Set APP_PASSWORD (any username works). In production
+ * (VERCEL_ENV=production) the app refuses to serve without it, so strangers can't start
+ * runs on your Apify account. Dev and preview stay open when it is unset.
  */
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -14,14 +16,14 @@ export function proxy(request: NextRequest) {
   const rejected = checkRequest(request.method, pathname, request.headers);
   if (rejected) return NextResponse.json({ error: rejected.error }, { status: rejected.status });
 
-  const password = process.env.APP_PASSWORD;
-  if (!password) return NextResponse.next();
-
-  const header = request.headers.get("authorization") ?? "";
-  if (header.startsWith("Basic ")) {
-    const decoded = atob(header.slice(6));
-    const supplied = decoded.slice(decoded.indexOf(":") + 1);
-    if (supplied === password) return NextResponse.next();
+  const auth = checkAuth({
+    password: process.env.APP_PASSWORD,
+    vercelEnv: process.env.VERCEL_ENV,
+    authorization: request.headers.get("authorization"),
+  });
+  if (auth.kind === "allow") return NextResponse.next();
+  if (auth.kind === "unconfigured") {
+    return new NextResponse(auth.message, { status: auth.status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   }
   return new NextResponse("Authentication required", {
     status: 401,

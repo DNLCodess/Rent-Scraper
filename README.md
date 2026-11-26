@@ -44,7 +44,7 @@ See `.env.example` for the full list: `APIFY_TOKEN`, `APIFY_ACTOR`, `SCRAPER_PRO
 3. Set `APIFY_TOKEN`, `APP_PASSWORD`, `CRON_SECRET`, `APIFY_WEBHOOK_SECRET` (any long random string) and `APP_URL` (your public URL, e.g. `https://your-app.vercel.app`).
 4. Deploy. `vercel.json` registers the daily cron.
 
-`APP_PASSWORD` turns on HTTP Basic auth for the whole app (any username, this password). Set it on any public deployment, otherwise strangers can spend your Apify credit.
+`APP_PASSWORD` turns on HTTP Basic auth for the whole app (any username, this password). It is required in production: when `VERCEL_ENV` is `production` and it is unset, every page and API call answers 503 "Set APP_PASSWORD to use this app." (the cron and webhook routes keep their own secrets). Local dev and preview deployments stay open without it.
 
 All mutating `/api` calls (POST/PUT/PATCH/DELETE) must be same-origin and send JSON (`Origin` header matching the host, `Content-Type: application/json`). This is a CSRF guard, since Basic-auth credentials are sent cross-site by browsers. The cron and webhook routes are exempt and use their own secrets.
 
