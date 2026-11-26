@@ -56,7 +56,7 @@ export function notifyInboxChanged() {
   window.dispatchEvent(new Event(INBOX_CHANGED));
 }
 
-/** Fetches matchCount from GET /api/inbox, refreshing on route change and on notifyInboxChanged(). */
+/** Fetches matchCount from GET /api/inbox (0 while the hunt is done), refreshing on route change and on notifyInboxChanged(). */
 function useInboxCount(pathname: string, enabled: boolean): number {
   const [count, setCount] = useState(0);
   useEffect(() => {
@@ -65,10 +65,13 @@ function useInboxCount(pathname: string, enabled: boolean): number {
     const refresh = () => {
       ctrl.abort();
       ctrl = new AbortController();
-      fetch("/api/inbox", { signal: ctrl.signal, cache: "no-store" })
-        .then((res) => (res.ok ? (res.json() as Promise<InboxResponse>) : null))
-        .then((data) => {
-          if (data && typeof data.matchCount === "number") setCount(data.matchCount);
+      const get = <T,>(path: string) =>
+        fetch(path, { signal: ctrl.signal, cache: "no-store" }).then((res) => (res.ok ? (res.json() as Promise<T>) : null));
+      Promise.all([get<InboxResponse>("/api/inbox"), get<{ huntState?: string }>("/api/preferences")])
+        .then(([data, prefs]) => {
+          // The badge is hidden while the hunt is finished (spec §7 Got it).
+          if (prefs?.huntState === "done") setCount(0);
+          else if (data && typeof data.matchCount === "number") setCount(data.matchCount);
         })
         .catch(() => {
           // Badge is a hint only; keep the last known count on failure.
