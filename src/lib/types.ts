@@ -16,6 +16,8 @@ export interface Run {
   scraped: number; // videos collected so far
   target: number; // count * number of tags
   result_count: number;
+  /** "scheduled" when the daily cron started it. */
+  source: "manual" | "scheduled";
 }
 
 export interface Listing {

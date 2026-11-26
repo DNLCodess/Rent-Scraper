@@ -41,6 +41,7 @@ function rowToRun(r: Row): Run {
     scraped: Number(r.scraped),
     target: Number(r.count) * tags.length,
     result_count: Number(r.result_count),
+    source: r.source === "scheduled" ? "scheduled" : "manual",
   };
 }
 

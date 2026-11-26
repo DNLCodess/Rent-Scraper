@@ -58,12 +58,6 @@ export const STATUS_LABEL: Record<RunStatus, string> = {
   failed: "Failed",
 };
 
-export function statusVariant(s: RunStatus): "default" | "secondary" | "destructive" | "outline" {
-  if (s === "done") return "secondary";
-  if (s === "failed") return "destructive";
-  return "outline";
-}
-
 const DAY_MS = 86_400_000;
 
 /** "today", "yesterday", "3 days ago", "2 weeks ago", "4 months ago". */
