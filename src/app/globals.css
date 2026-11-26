@@ -152,3 +152,63 @@
     outline-offset: 3px;
   }
 }
+
+/*
+ * Two-handle range (My criteria budget): two native range inputs stacked on one track.
+ * The inputs ignore pointers so either thumb can be grabbed; only the thumbs take them.
+ */
+@layer components {
+  .dual-range input[type="range"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 48px;
+    margin: 0;
+    background: transparent;
+    pointer-events: none;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  .dual-range input[type="range"]::-webkit-slider-runnable-track {
+    background: transparent;
+    border: 0;
+  }
+  .dual-range input[type="range"]::-moz-range-track {
+    background: transparent;
+    border: 0;
+  }
+  .dual-range input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 14px;
+    background: var(--surface);
+    border: 2px solid var(--primary);
+    box-shadow: 0 2px 6px rgba(14, 34, 38, 0.18);
+    pointer-events: auto;
+    cursor: grab;
+  }
+  .dual-range input[type="range"]::-moz-range-thumb {
+    box-sizing: border-box;
+    width: 28px;
+    height: 28px;
+    border-radius: 14px;
+    background: var(--surface);
+    border: 2px solid var(--primary);
+    box-shadow: 0 2px 6px rgba(14, 34, 38, 0.18);
+    pointer-events: auto;
+    cursor: grab;
+  }
+  .dual-range input[type="range"]:focus-visible {
+    outline: none;
+  }
+  .dual-range input[type="range"]:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+  }
+  .dual-range input[type="range"]:focus-visible::-moz-range-thumb {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+  }
+}

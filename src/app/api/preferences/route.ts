@@ -1,4 +1,5 @@
 import { errorResponse } from "@/lib/api/respond";
+import { reopenHunt } from "@/lib/listings";
 import { getPreferences, updatePreferences } from "@/lib/preferences";
 import { InputError } from "@/lib/runs";
 
@@ -19,6 +20,18 @@ export async function PUT(request: Request) {
       throw new InputError("Send a JSON object of preferences to update.");
     }
     return Response.json(await updatePreferences(body));
+  } catch (err) {
+    return errorResponse(err);
+  }
+}
+
+/** POST /api/preferences {reopen: true}: reopens a finished hunt (un-archives the tracker, resumes daily searches). */
+export async function POST(request: Request) {
+  try {
+    const body = await request.json().catch(() => null);
+    if (!body || body.reopen !== true) throw new InputError("Send {\"reopen\": true} to reopen the hunt.");
+    await reopenHunt();
+    return Response.json(await getPreferences());
   } catch (err) {
     return errorResponse(err);
   }
