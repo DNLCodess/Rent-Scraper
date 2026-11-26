@@ -2,6 +2,7 @@ import "server-only";
 import { createClient, type Client, type InValue } from "@libsql/client";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { parseListing } from "./parser";
 
 /**
  * libSQL database. Locally this is a plain SQLite file (DATABASE_URL=file:data/app.db);
@@ -71,16 +72,32 @@ const NEW_TABLES = [
   )`,
 ];
 
-/** Adds a column when the table does not have it yet (SQLite has no ADD COLUMN IF NOT EXISTS). */
+/** Column names of a table, read with one PRAGMA. */
+async function columnsOf(c: Client, table: string): Promise<Set<string>> {
+  const info = await c.execute(`PRAGMA table_info(${table})`);
+  return new Set(info.rows.map((r) => r.name as string));
+}
+
+/**
+ * Adds a column when the table does not have it yet (SQLite has no ADD COLUMN IF NOT EXISTS).
+ * `existing` is the table's columns if already read. Two cold instances can both see the
+ * column missing; the loser's "duplicate column name" error is ignored.
+ */
 export async function addColumnIfMissing(
   c: Client,
   table: string,
   column: string,
   ddl: string,
+  existing?: Set<string>,
 ): Promise<void> {
-  const info = await c.execute(`PRAGMA table_info(${table})`);
-  if (info.rows.some((r) => r.name === column)) return;
-  await c.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  const cols = existing ?? (await columnsOf(c, table));
+  if (cols.has(column)) return;
+  try {
+    await c.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  } catch (err) {
+    if (!/duplicate column name/i.test(String((err as Error)?.message ?? err))) throw err;
+  }
+  cols.add(column);
 }
 
 const LISTING_COLUMNS: [string, string][] = [
@@ -100,13 +117,59 @@ const LISTING_COLUMNS: [string, string][] = [
   ["prev_status", "TEXT"],
 ];
 
+/**
+ * Bump when parser changes should be applied to rows already stored. migrate() re-parses
+ * every listing once per bump (only the parsed columns; never status or tracker fields).
+ */
+export const PARSER_VERSION = 2;
+const REPARSE_BATCH = 200;
+
+/** Re-parses stored listings when the stored parser_version is older. Idempotent and safe to run concurrently. */
+async function reparseIfStale(c: Client): Promise<void> {
+  const r = await c.execute("SELECT value FROM settings WHERE key = 'parser_version'");
+  const stored = Number(r.rows[0]?.value ?? 0) || 0;
+  if (stored >= PARSER_VERSION) return;
+  let after = "";
+  for (;;) {
+    const page = await c.execute({
+      sql: "SELECT id, caption, bio FROM listings WHERE id > ? ORDER BY id LIMIT ?",
+      args: [after, REPARSE_BATCH],
+    });
+    if (page.rows.length === 0) break;
+    await c.batch(
+      page.rows.map((row) => {
+        const p = parseListing(String(row.caption ?? ""), (row.bio as string | null) ?? "");
+        return {
+          sql: `UPDATE listings SET price_raw = ?, price_ngn = ?, price_period = ?, area = ?, bedrooms = ?, phone = ?,
+                  power_level = ?, power_raw = ?, total_package_ngn = ? WHERE id = ?`,
+          args: [p.price_raw, p.price_ngn, p.price_period, p.area, p.bedrooms, p.phone, p.power_level, p.power_raw,
+            p.total_package_ngn, row.id as string],
+        };
+      }),
+      "write",
+    );
+    after = page.rows[page.rows.length - 1].id as string;
+    if (page.rows.length < REPARSE_BATCH) break;
+  }
+  // Never lower a version a newer deploy may have written meanwhile.
+  await c.execute({
+    sql: `INSERT INTO settings (key, value) VALUES ('parser_version', ?)
+          ON CONFLICT(key) DO UPDATE SET value = CASE
+            WHEN CAST(settings.value AS INTEGER) < CAST(excluded.value AS INTEGER) THEN excluded.value
+            ELSE settings.value END`,
+    args: [String(PARSER_VERSION)],
+  });
+}
+
 /** Creates tables, adds v2 columns and backfills. Safe to run repeatedly. */
 export async function migrate(c: Client): Promise<void> {
   await c.batch([...SCHEMA, ...NEW_TABLES], "write");
-  for (const [col, ddl] of LISTING_COLUMNS) await addColumnIfMissing(c, "listings", col, ddl);
-  await addColumnIfMissing(c, "listings", "cover_url", "TEXT");
+  const listingCols = await columnsOf(c, "listings");
+  for (const [col, ddl] of LISTING_COLUMNS) await addColumnIfMissing(c, "listings", col, ddl, listingCols);
+  await addColumnIfMissing(c, "listings", "cover_url", "TEXT", listingCols);
   await addColumnIfMissing(c, "runs", "source", "TEXT NOT NULL DEFAULT 'manual'");
   await c.execute("UPDATE listings SET first_seen_at = updated_at WHERE first_seen_at IS NULL");
+  await reparseIfStale(c);
 }
 
 let client: Client | null = null;
@@ -120,9 +183,23 @@ export async function db(): Promise<Client> {
     }
     client = createClient({ url, authToken: process.env.DATABASE_AUTH_TOKEN });
   }
-  ready ??= migrate(client);
+  ready ??= startMigrate(client);
   await ready;
   return client;
+}
+
+/** Runs migrate once; a failure is forgotten so the next db() call retries instead of failing forever. */
+function startMigrate(c: Client): Promise<void> {
+  const p: Promise<void> = migrate(c).catch((err) => {
+    if (ready === p) ready = null;
+    throw err;
+  });
+  return p;
+}
+
+/** Tests only: forgets that migrate ran, so the next db() call runs it again. */
+export function resetMigrationForTests(): void {
+  ready = null;
 }
 
 /** Tests only: swaps the singleton for a fresh in-memory database with the schema applied. */
