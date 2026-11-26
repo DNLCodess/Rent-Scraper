@@ -100,19 +100,20 @@ function AreaGroup({
         </h3>
         <p className="m-0 text-[13px] font-medium text-text-3">{meta.effect}</p>
       </div>
-      <ul aria-labelledby={id} className="m-0 flex list-none flex-wrap gap-2 p-0">
+      {/* Row gap 12: the 48px hit areas reach 6px past each 36px chip, so wrapped rows never overlap. */}
+      <ul aria-labelledby={id} className="m-0 flex list-none flex-wrap gap-x-2 gap-y-3 p-0">
         {areas.map((a) => (
           <li
             key={a}
             className={cn("inline-flex h-9 items-center gap-1 rounded-full pr-1 pl-3.5 text-sm font-bold", meta.chip)}
           >
             {a}
-            {/* 28px glyph, 44px hit area; negative margins keep the chip 36px tall. */}
+            {/* 48px hit area; negative margins keep the chip 36px tall. */}
             <button
               type="button"
               aria-label={`Remove ${a}`}
               onClick={() => onRemove(list, a)}
-              className="-my-1 -mr-1 flex size-11 items-center justify-center rounded-full bg-transparent text-current hover:bg-black/5"
+              className="-my-1.5 -mr-2 -ml-1 flex size-12 items-center justify-center rounded-full bg-transparent text-current hover:bg-black/5"
             >
               <X aria-hidden className="size-3.5" strokeWidth={2.4} />
             </button>
@@ -123,7 +124,7 @@ function AreaGroup({
             type="button"
             aria-haspopup="dialog"
             onClick={onAdd}
-            className="relative inline-flex h-9 items-center gap-1.5 rounded-full border border-dashed border-[#A9B8B5] bg-transparent px-3.5 text-sm font-semibold text-text after:absolute after:-inset-y-1 after:inset-x-0 hover:bg-subtle"
+            className="relative inline-flex h-9 items-center gap-1.5 rounded-full border border-dashed border-[#A9B8B5] bg-transparent px-3.5 text-sm font-semibold text-text after:absolute after:-inset-y-1.5 after:inset-x-0 hover:bg-subtle"
           >
             <Plus aria-hidden className="size-4" strokeWidth={1.8} />
             Add area

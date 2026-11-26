@@ -59,6 +59,8 @@ function rangeText(min: number | null, max: number | null): string {
   return `${formatNaira(min)} – ${formatNaira(max)}`;
 }
 
+const INVALID = "Enter an amount like 800k, 2m or 650,000.";
+
 const amountText = (n: number | null) => (n === null ? "" : formatNaira(n));
 
 interface BudgetCardProps {
@@ -80,12 +82,13 @@ export function BudgetCard({ min, max, prices, onChange, error }: BudgetCardProp
   const [maxError, setMaxError] = useState<string | null>(null);
   // Keep the text in step when the value changes from outside the inputs (slider, server canonical value).
   const [shown, setShown] = useState({ min, max });
+  // Each field resyncs only when its own value changed, so moving one handle never wipes text typed in the other.
   if (shown.min !== min || shown.max !== max) {
-    if (parseAmount(minText) !== (min ?? undefined) && !(min === null && minText.trim() === "")) {
+    if (shown.min !== min && parseAmount(minText) !== (min ?? undefined) && !(min === null && minText.trim() === "")) {
       setMinText(amountText(min));
       setMinError(null);
     }
-    if (parseAmount(maxText) !== (max ?? undefined) && !(max === null && maxText.trim() === "")) {
+    if (shown.max !== max && parseAmount(maxText) !== (max ?? undefined) && !(max === null && maxText.trim() === "")) {
       setMaxText(amountText(max));
       setMaxError(null);
     }
@@ -118,28 +121,24 @@ export function BudgetCard({ min, max, prices, onChange, error }: BudgetCardProp
     onChange({ budgetMin: min, budgetMax: v >= hi ? null : v });
   }
 
-  function typed(which: "min" | "max", text: string) {
-    (which === "min" ? setMinText : setMaxText)(text);
-    const setErr = which === "min" ? setMinError : setMaxError;
-    let value: number | null;
-    if (text.trim() === "") value = null;
-    else {
-      const n = parseAmount(text);
-      if (n === undefined) {
-        setErr("Enter an amount like 800k, 2m or 650,000.");
-        return;
-      }
-      value = n;
-    }
-    setErr(null);
-    onChange(which === "min" ? { budgetMin: value, budgetMax: max } : { budgetMin: min, budgetMax: value });
+  /** Parses a field: null for empty, undefined for text that isn't an amount. */
+  function parseField(text: string): number | null | undefined {
+    return text.trim() === "" ? null : parseAmount(text);
   }
 
-  /** On blur, show a valid amount in the short form ("2000000" becomes "₦2m"). */
-  function tidy(which: "min" | "max") {
-    const text = which === "min" ? minText : maxText;
-    const n = parseAmount(text);
-    if (n !== undefined) (which === "min" ? setMinText : setMaxText)(formatNaira(n));
+  /** While typing: validate inline only. Saving waits for blur or Enter, so "2" on the way to "2m" is never saved. */
+  function typed(which: "min" | "max", text: string) {
+    (which === "min" ? setMinText : setMaxText)(text);
+    (which === "min" ? setMinError : setMaxError)(parseField(text) === undefined ? INVALID : null);
+  }
+
+  /** On blur or Enter: save a valid amount and show it in the short form ("2000000" becomes "₦2m"). */
+  function commit(which: "min" | "max") {
+    const value = parseField(which === "min" ? minText : maxText);
+    if (value === undefined) return;
+    (which === "min" ? setMinText : setMaxText)(amountText(value));
+    if (value === (which === "min" ? min : max)) return;
+    onChange(which === "min" ? { budgetMin: value, budgetMax: max } : { budgetMin: min, budgetMax: value });
   }
 
   return (
@@ -170,14 +169,14 @@ export function BudgetCard({ min, max, prices, onChange, error }: BudgetCardProp
           <p className="m-0 text-[13px] font-medium text-text-3">Not enough prices yet to chart.</p>
         )}
         <div className="dual-range relative h-12">
-          {/* Native thumbs travel between 14px and width − 14px, so the track is inset to match. */}
-          <span aria-hidden className="absolute inset-x-3.5 top-[23px] h-0.5 rounded-[1px] bg-line" />
+          {/* The 48px thumbs travel between 24px and width − 24px, so the track is inset to match. */}
+          <span aria-hidden className="absolute inset-x-6 top-[23px] h-0.5 rounded-[1px] bg-line" />
           <span
             aria-hidden
             className="absolute top-[22px] h-1 rounded-sm bg-primary"
             style={{
-              left: `calc(14px + (100% - 28px) * ${pct(minPos) / 100})`,
-              right: `calc(14px + (100% - 28px) * ${1 - pct(maxPos) / 100})`,
+              left: `calc(24px + (100% - 48px) * ${pct(minPos) / 100})`,
+              right: `calc(24px + (100% - 48px) * ${1 - pct(maxPos) / 100})`,
             }}
           />
           <input
@@ -212,7 +211,7 @@ export function BudgetCard({ min, max, prices, onChange, error }: BudgetCardProp
           value={minText}
           error={minError}
           onChange={(t) => typed("min", t)}
-          onBlur={() => tidy("min")}
+          onCommit={() => commit("min")}
         />
         <AmountField
           id={`${id}-max`}
@@ -221,7 +220,7 @@ export function BudgetCard({ min, max, prices, onChange, error }: BudgetCardProp
           value={maxText}
           error={maxError}
           onChange={(t) => typed("max", t)}
-          onBlur={() => tidy("max")}
+          onCommit={() => commit("max")}
         />
       </div>
     </CriteriaCard>
@@ -235,7 +234,7 @@ function AmountField({
   value,
   error,
   onChange,
-  onBlur,
+  onCommit,
 }: {
   id: string;
   label: string;
@@ -243,7 +242,8 @@ function AmountField({
   value: string;
   error: string | null;
   onChange: (text: string) => void;
-  onBlur: () => void;
+  /** Blur or Enter. */
+  onCommit: () => void;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
@@ -260,7 +260,13 @@ function AmountField({
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${id}-error` : undefined}
         onChange={(e) => onChange(e.target.value)}
-        onBlur={onBlur}
+        onBlur={onCommit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onCommit();
+          }
+        }}
         className={FIELD}
       />
       {error && (

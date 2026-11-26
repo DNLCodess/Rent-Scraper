@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api/client";
 import { formatAge } from "@/lib/format";
 import { yearlyRent } from "@/lib/parser";
+import { cardPatches, pickEditable, type CardId, type Editable } from "@/lib/criteria";
 import type { BedOption, PowerMode, Preferences } from "@/lib/preferences";
 import type { InboxItem, InboxResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -21,9 +22,6 @@ import { CriteriaCard } from "./criteria-card";
 const SAVE_DEBOUNCE_MS = 400;
 /** At most one "Saved" toast in this window, so dragging the slider doesn't stack them. */
 const SAVED_TOAST_GAP_MS = 3000;
-
-type Editable = Pick<Preferences, "budgetMin" | "budgetMax" | "beds" | "preferredAreas" | "excludedAreas" | "powerMode">;
-type CardId = "budget" | "beds" | "areas" | "power";
 
 interface Blocked {
   handle: string;
@@ -57,15 +55,11 @@ const POWER: { value: PowerMode; label: string; effect: string }[] = [
   { value: "require", label: "Must be mentioned", effect: "Hides most listings; few captions say." },
 ];
 
-function editable(p: Preferences): Editable {
-  return {
-    budgetMin: p.budgetMin,
-    budgetMax: p.budgetMax,
-    beds: p.beds,
-    preferredAreas: p.preferredAreas,
-    excludedAreas: p.excludedAreas,
-    powerMode: p.powerMode,
-  };
+/** The server's values for the keys a patch sent. */
+function pickCard(saved: Preferences, patch: Partial<Editable>): Partial<Editable> {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(patch) as (keyof Editable)[]) out[k] = saved[k];
+  return out as Partial<Editable>;
 }
 
 function errorText(err: unknown): string {
@@ -85,10 +79,13 @@ export function CriteriaForm() {
   const [reopening, setReopening] = useState(false);
 
   const draftRef = useRef<Editable | null>(null);
+  /** What the server last confirmed; each save sends only what differs from it. */
+  const savedRef = useRef<Editable | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** The card changed last; a rejected save shows its message under that card. */
-  const lastCard = useRef<CardId>("budget");
-  const saveSeq = useRef(0);
+  /** Cards changed since the last flush. A card holding a rejected value isn't resent until it changes again. */
+  const dirty = useRef<Set<CardId>>(new Set());
+  /** Per-card save counter: only the newest save of a card may set its error or canonical values. */
+  const cardSeq = useRef<Record<CardId, number>>({ budget: 0, beds: 0, areas: 0, power: 0 });
   const queue = useRef<Promise<void>>(Promise.resolve());
   const lastSavedToast = useRef(0);
   const busy = useRef(false);
@@ -104,8 +101,11 @@ export function CriteriaForm() {
       const prices = [...inbox.items, ...hidden.map((h) => h.item)]
         .map((l) => yearlyRent(l.price_ngn, l.price_period))
         .filter((n): n is number => n !== null);
-      draftRef.current = editable(prefs);
+      draftRef.current = pickEditable(prefs);
+      savedRef.current = draftRef.current;
+      dirty.current.clear();
       setDraft(draftRef.current);
+      setErrors({});
       setData({
         huntState: prefs.huntState,
         blocked,
@@ -131,40 +131,60 @@ export function CriteriaForm() {
     }
   }, []);
 
-  /** Sends the whole draft once. Saves run one after another so the last change always wins. */
+  /**
+   * Saves each changed card on its own PUT, carrying only that card's changed keys, so a rejected field
+   * never blocks another card and its message lands under the card that caused it. Saves run in order.
+   */
   const flush = useCallback(() => {
     timer.current = null;
-    const body = draftRef.current;
-    if (!body) return;
-    const card = lastCard.current;
-    const seq = ++saveSeq.current;
-    queue.current = queue.current.then(async () => {
-      try {
-        const saved = await api<Preferences>("/api/preferences", { method: "PUT", body: JSON.stringify(body) });
-        if (seq !== saveSeq.current) return;
-        // Take the server's canonical values (e.g. "lekki" becomes "Lekki") unless another change is pending.
-        if (!timer.current) {
-          draftRef.current = editable(saved);
-          setDraft(draftRef.current);
+    const draftNow = draftRef.current;
+    const savedNow = savedRef.current;
+    if (!draftNow || !savedNow) return;
+    const cards = [...dirty.current];
+    dirty.current.clear();
+    const patches = cardPatches(draftNow, savedNow, cards);
+    // A card changed back to its saved value has nothing to send; its old error no longer applies.
+    const unchanged = cards.filter((c) => !patches.some((p) => p.card === c));
+    if (unchanged.length) {
+      setErrors((e) => {
+        const next = { ...e };
+        for (const c of unchanged) delete next[c];
+        return next;
+      });
+    }
+    for (const { card, patch } of patches) {
+      const seq = ++cardSeq.current[card];
+      queue.current = queue.current.then(async () => {
+        try {
+          const saved = await api<Preferences>("/api/preferences", { method: "PUT", body: JSON.stringify(patch) });
+          savedRef.current = pickEditable(saved);
+          if (seq !== cardSeq.current[card]) return;
+          // Take the server's canonical values for this card (e.g. "lekki" becomes "Lekki") unless it changed again.
+          if (!dirty.current.has(card) && draftRef.current) {
+            draftRef.current = { ...draftRef.current, ...pickCard(saved, patch) };
+            setDraft(draftRef.current);
+          }
+          setErrors((e) => {
+            const next = { ...e };
+            delete next[card];
+            return next;
+          });
+          const now = Date.now();
+          if (now - lastSavedToast.current >= SAVED_TOAST_GAP_MS) {
+            lastSavedToast.current = now;
+            toast("Saved");
+          }
+          notifyInboxChanged();
+          await refreshCounts();
+        } catch (err) {
+          if (seq !== cardSeq.current[card]) return;
+          // Keep what the user entered; say what went wrong under the card that caused it.
+          const message =
+            err instanceof ApiError && err.status === 400 ? err.message : `Couldn't save. ${errorText(err)}`;
+          setErrors((e) => ({ ...e, [card]: message }));
         }
-        setErrors({});
-        const now = Date.now();
-        if (now - lastSavedToast.current >= SAVED_TOAST_GAP_MS) {
-          lastSavedToast.current = now;
-          toast("Saved");
-        }
-        notifyInboxChanged();
-        await refreshCounts();
-      } catch (err) {
-        if (seq !== saveSeq.current) return;
-        // Keep what the user entered; say what went wrong under the card they changed.
-        const message =
-          err instanceof ApiError && err.status === 400
-            ? err.message
-            : `Couldn't save. ${errorText(err)}`;
-        setErrors({ [card]: message });
-      }
-    });
+      });
+    }
   }, [refreshCounts]);
 
   // Leaving the page within the debounce window still saves the last change.
@@ -182,7 +202,7 @@ export function CriteriaForm() {
     if (!draftRef.current) return;
     draftRef.current = { ...draftRef.current, ...patch };
     setDraft(draftRef.current);
-    lastCard.current = card;
+    dirty.current.add(card);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(flush, SAVE_DEBOUNCE_MS);
   }
