@@ -6,10 +6,23 @@ import { parseListing } from "./parser";
 
 /**
  * libSQL database. Locally this is a plain SQLite file (DATABASE_URL=file:data/app.db);
- * on Vercel point DATABASE_URL at a Turso database and set DATABASE_AUTH_TOKEN.
+ * on Vercel it is Turso. The connection is read from DATABASE_URL / DATABASE_AUTH_TOKEN,
+ * or from the names the Vercel Turso integration creates (DATABASE_TURSO_DATABASE_URL /
+ * DATABASE_TURSO_AUTH_TOKEN with the "DATABASE" prefix, TURSO_DATABASE_URL / TURSO_AUTH_TOKEN
+ * without one), so the integration's managed variables work as they are.
  */
 
-const url = process.env.DATABASE_URL || "file:data/app.db";
+type Env = Record<string, string | undefined>;
+
+/** Database URL and auth token from the environment, first match wins. */
+export function dbConfigFromEnv(env: Env): { url: string; authToken: string | undefined } {
+  return {
+    url: env.DATABASE_URL || env.DATABASE_TURSO_DATABASE_URL || env.TURSO_DATABASE_URL || "file:data/app.db",
+    authToken: env.DATABASE_AUTH_TOKEN || env.DATABASE_TURSO_AUTH_TOKEN || env.TURSO_AUTH_TOKEN || undefined,
+  };
+}
+
+const { url, authToken } = dbConfigFromEnv(process.env);
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS runs (
@@ -181,7 +194,7 @@ export async function db(): Promise<Client> {
     if (url.startsWith("file:") && !url.includes(":memory:")) {
       mkdirSync(dirname(url.slice(5)), { recursive: true });
     }
-    client = createClient({ url, authToken: process.env.DATABASE_AUTH_TOKEN });
+    client = createClient({ url, authToken });
   }
   ready ??= startMigrate(client);
   await ready;

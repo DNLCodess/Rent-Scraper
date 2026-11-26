@@ -147,3 +147,22 @@ describe("legacy re-parse", () => {
     expect(row.price_ngn).toBe(1_950_000); // inserted after the version was stored: left alone
   });
 });
+
+describe("dbConfigFromEnv", () => {
+  it("prefers DATABASE_URL / DATABASE_AUTH_TOKEN", async () => {
+    const { dbConfigFromEnv } = await import("./db");
+    expect(dbConfigFromEnv({ DATABASE_URL: "libsql://a", DATABASE_AUTH_TOKEN: "t", DATABASE_TURSO_DATABASE_URL: "libsql://b" }))
+      .toEqual({ url: "libsql://a", authToken: "t" });
+  });
+  it("accepts the Vercel Turso integration names (prefixed and default)", async () => {
+    const { dbConfigFromEnv } = await import("./db");
+    expect(dbConfigFromEnv({ DATABASE_TURSO_DATABASE_URL: "libsql://b", DATABASE_TURSO_AUTH_TOKEN: "t2" }))
+      .toEqual({ url: "libsql://b", authToken: "t2" });
+    expect(dbConfigFromEnv({ TURSO_DATABASE_URL: "libsql://c", TURSO_AUTH_TOKEN: "t3" }))
+      .toEqual({ url: "libsql://c", authToken: "t3" });
+  });
+  it("falls back to the local file", async () => {
+    const { dbConfigFromEnv } = await import("./db");
+    expect(dbConfigFromEnv({})).toEqual({ url: "file:data/app.db", authToken: undefined });
+  });
+});

@@ -40,7 +40,7 @@ See `.env.example` for the full list: `APIFY_TOKEN`, `APIFY_ACTOR`, `SCRAPER_PRO
 ## Deploy to Vercel
 
 1. Import the repo into Vercel.
-2. Add a **Turso** database from the Vercel Marketplace. It sets `DATABASE_URL` and `DATABASE_AUTH_TOKEN`.
+2. Add a **Turso** database from the Vercel Marketplace (custom prefix `DATABASE`). The integration creates `DATABASE_TURSO_DATABASE_URL` and `DATABASE_TURSO_AUTH_TOKEN`, which the app reads as they are; `DATABASE_URL` / `DATABASE_AUTH_TOKEN` (or the unprefixed `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN`) also work.
 3. Set `APIFY_TOKEN`, `APP_PASSWORD`, `CRON_SECRET`, `APIFY_WEBHOOK_SECRET` (any long random string) and `APP_URL` (your public URL, e.g. `https://your-app.vercel.app`).
 4. Deploy. `vercel.json` registers the daily cron.
 
